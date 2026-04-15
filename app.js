@@ -369,6 +369,10 @@ function renderSettings() {
           <button class="btn" id="import-logs">Import</button>
         </div>
         <div class="hint">Back up or move your history between devices.</div>
+        <div class="btn-row" style="margin-top:10px">
+          <button class="btn danger" id="clear-data" style="flex:1">Clear all data</button>
+        </div>
+        <div class="hint">Wipes logs, drafts, and settings from this device. Export first if you want a backup.</div>
       </div>
     </div>
   `);
@@ -392,6 +396,22 @@ function renderSettings() {
     a.download = `powerbatics-backup-${todayStr()}.json`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+
+  form.querySelector("#clear-data").addEventListener("click", () => {
+    if (!confirm("Delete all logs, drafts, and settings on this device? This cannot be undone.")) return;
+    if (!confirm("Really clear everything?")) return;
+    // Remove every key we own — leave unrelated keys alone in case this app
+    // ever shares storage with something else on the same origin.
+    const prefixes = [LS_LOGS, LS_DRAFT, LS_SETTINGS, "pb.installHintDismissed"];
+    const toRemove = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (prefixes.some((p) => k === p || k.startsWith(p + "."))) toRemove.push(k);
+    }
+    for (const k of toRemove) localStorage.removeItem(k);
+    alert("Cleared.");
+    go("#/");
   });
 
   form.querySelector("#import-logs").addEventListener("click", () => {
@@ -476,7 +496,11 @@ function renderDay(dayIdx) {
   app.appendChild(wrap);
 }
 
-// ---------- video helper (with iOS-correct fullscreen) ----------
+// ---------- video helper ----------
+// Fullscreen = CSS overlay that fills the viewport. Reliable on iOS Safari
+// (where iframe Fullscreen API doesn't work) and everywhere else. Also
+// tries the browser's real Fullscreen API opportunistically to hide chrome
+// on Android/desktop, but the overlay alone is the source of truth.
 function buildVideoEl(videoId) {
   const v = el(`
     <div class="video-wrap" id="video-wrap">
@@ -486,36 +510,34 @@ function buildVideoEl(videoId) {
         allowfullscreen
       ></iframe>
       <button class="video-fs" aria-label="Fullscreen">⛶</button>
+      <button class="video-fs-close" aria-label="Exit fullscreen">✕</button>
     </div>
   `);
-  const iframe = v.querySelector("iframe");
   const fsBtn = v.querySelector(".video-fs");
-  let player = null;
-  try {
-    if (window.Vimeo && window.Vimeo.Player) player = new Vimeo.Player(iframe);
-  } catch {}
-  // Keep the click handler synchronous so iOS Safari treats it as a user
-  // gesture — await would break that. iPhone fullscreen needs the video
-  // already playing, so kick off play() first.
-  fsBtn.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const fsFallback = () => {
-      try {
-        if (v.requestFullscreen) v.requestFullscreen();
-        else if (v.webkitRequestFullscreen) v.webkitRequestFullscreen();
-        else if (iframe.requestFullscreen) iframe.requestFullscreen();
-      } catch {}
-    };
-    if (player) {
-      try { player.play().catch(() => {}); } catch {}
-      try {
-        const p = player.requestFullscreen();
-        if (p && p.catch) p.catch(fsFallback);
-      } catch { fsFallback(); }
-    } else {
-      fsFallback();
-    }
+  const closeBtn = v.querySelector(".video-fs-close");
+
+  const enter = () => {
+    v.classList.add("fs-mode");
+    document.body.classList.add("fs-lock");
+    try {
+      if (v.requestFullscreen) v.requestFullscreen().catch(() => {});
+      else if (v.webkitRequestFullscreen) v.webkitRequestFullscreen();
+    } catch {}
+  };
+  const exit = () => {
+    v.classList.remove("fs-mode");
+    document.body.classList.remove("fs-lock");
+    try {
+      if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+      else if (document.webkitFullscreenElement && document.webkitExitFullscreen) document.webkitExitFullscreen();
+    } catch {}
+  };
+  fsBtn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); enter(); });
+  closeBtn.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); exit(); });
+
+  // Listen for native fullscreen exit (user hit ESC or swiped down) to sync UI
+  document.addEventListener("fullscreenchange", () => {
+    if (!document.fullscreenElement && v.classList.contains("fs-mode")) exit();
   });
   return v;
 }
