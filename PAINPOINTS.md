@@ -1,17 +1,16 @@
 # Why I built this — pain points with the current custom-program page
 
-I've been paying for a custom coaching program for 4+ months and rarely actually do the exercises — not because I don't want to, but because the delivery format makes it hard. Here's everything that went wrong every time I tried to use it.
+I've been paying for a custom coaching program for 4+ months and rarely actually do the exercises as listed — not because I don't want to, but because the delivery format makes it hard. Here's everything that went wrong every time I tried to use it.
 
 ## Structure & navigation
 - **One endless page for the entire week.** I have to scroll past every day to find today's workout. No "today's workout" view.
-- **No sense of progress inside a day** — I can't tell which exercise I'm on, which I've done, or how many are left.
+- **No sense of progress inside a day** — I can't track anything and I like to click that I finished something. 
 - **Losing my place is automatic** — come back later, you're back at the top.
-- **Warm-up is mixed in with training** so it's not clear it runs before every day.
 
 ## Reliability
 - **The page reloads itself** mid-workout and I lose my spot.
-- **Videos intermittently fail to load** (blank iframes). Only fix is refresh, which makes it worse.
-- **Screen goes to sleep** between sets, and when it wakes up, the whole page often has to reload.
+- **Videos intermittently fail to load** Only fix is refresh, which makes it worse.
+- **Screen goes to sleep** between sets, and when it wakes up, the whole page often has to reload or moved back up to the top. 
 - **No persistence** — every visit is a cold start. The page doesn't remember what day I did last, which exercise I was on, nothing.
 
 ## Audio / multitasking
@@ -20,12 +19,11 @@ I've been paying for a custom coaching program for 4+ months and rarely actually
 
 ## Video UX
 - **Fullscreen button is tiny** — hard to hit on a phone mid-movement, and iOS's fullscreen gesture is unreliable through an iframe.
-- **Video can't follow me** when I scroll down. Either I see the video or I see the description, never both.
 
 ## "It's not actually an app"
 - **Can't install to my home screen.** I have to keep a Safari tab open or re-navigate to a bookmark.
 - **Tab can't be backgrounded** for long without the page forgetting everything.
-- **Works poorly offline** or on weak Wi-Fi at the gym.
+- **Doens't work offline** or on weak Wi-Fi.
 - **No notifications** of any kind.
 
 ## Training features that simply aren't there
