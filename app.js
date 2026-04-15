@@ -94,13 +94,17 @@ const getLastLog = (key) => {
 const lastDoneDate = (key) => getLastLog(key)?.date || null;
 const doneToday = (key) => lastDoneDate(key) === todayStr();
 
-// All dates across all logs (Set of ISO strings)
+// Dates with real training logs (warm-ups don't count toward streak/calendar).
 function getLoggedDates() {
   const s = new Set();
   const logs = loadLogs();
-  for (const k of Object.keys(logs)) for (const e of logs[k]) s.add(e.date);
+  for (const k of Object.keys(logs)) for (const e of logs[k]) {
+    if (!e.warmup) s.add(e.date);
+  }
   return s;
 }
+
+const isWarmUpDay = (day) => /warm\s*up/i.test(day?.name || "");
 
 function getStreak() {
   const dates = getLoggedDates();
@@ -458,7 +462,11 @@ function renderDay(dayIdx) {
   });
   wrap.appendChild(list);
 
-  if (doneCount === day.exercises.length && day.exercises.length > 0) {
+  if (
+    !isWarmUpDay(day) &&
+    doneCount === day.exercises.length &&
+    day.exercises.length > 0
+  ) {
     const sumBtn = el(
       `<button class="btn primary" style="margin-top:14px;height:52px">View today's summary →</button>`,
     );
@@ -468,12 +476,58 @@ function renderDay(dayIdx) {
   app.appendChild(wrap);
 }
 
+// ---------- video helper (with iOS-correct fullscreen) ----------
+function buildVideoEl(videoId) {
+  const v = el(`
+    <div class="video-wrap" id="video-wrap">
+      <iframe
+        src="https://player.vimeo.com/video/${videoId}?title=0&byline=0&portrait=0&playsinline=1&muted=1"
+        allow="autoplay; fullscreen; picture-in-picture"
+        allowfullscreen
+      ></iframe>
+      <button class="video-fs" aria-label="Fullscreen">⛶</button>
+    </div>
+  `);
+  const iframe = v.querySelector("iframe");
+  const fsBtn = v.querySelector(".video-fs");
+  let player = null;
+  try {
+    if (window.Vimeo && window.Vimeo.Player) player = new Vimeo.Player(iframe);
+  } catch {}
+  // Keep the click handler synchronous so iOS Safari treats it as a user
+  // gesture — await would break that. iPhone fullscreen needs the video
+  // already playing, so kick off play() first.
+  fsBtn.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const fsFallback = () => {
+      try {
+        if (v.requestFullscreen) v.requestFullscreen();
+        else if (v.webkitRequestFullscreen) v.webkitRequestFullscreen();
+        else if (iframe.requestFullscreen) iframe.requestFullscreen();
+      } catch {}
+    };
+    if (player) {
+      try { player.play().catch(() => {}); } catch {}
+      try {
+        const p = player.requestFullscreen();
+        if (p && p.catch) p.catch(fsFallback);
+      } catch { fsFallback(); }
+    } else {
+      fsFallback();
+    }
+  });
+  return v;
+}
+
 // ---------- EXERCISE ----------
 function renderExercise(dayIdx, exIdx) {
   const day = program.days[dayIdx];
   if (!day) return go("#/");
   const ex = day.exercises[exIdx];
   if (!ex) return go(`#/day/${dayIdx}`);
+
+  if (isWarmUpDay(day)) return renderWarmUpExercise(dayIdx, exIdx, day, ex);
 
   const key = exKey(day.name, ex.name);
   const settings = loadSettings();
@@ -520,41 +574,7 @@ function renderExercise(dayIdx, exIdx) {
   top.querySelector(".back").addEventListener("click", () => go(`#/day/${dayIdx}`));
   wrap.appendChild(top);
 
-  if (ex.videoId) {
-    const v = el(`
-      <div class="video-wrap" id="video-wrap">
-        <iframe
-          src="https://player.vimeo.com/video/${ex.videoId}?title=0&byline=0&portrait=0&playsinline=1&muted=1"
-          allow="autoplay; fullscreen; picture-in-picture"
-          allowfullscreen
-        ></iframe>
-        <button class="video-fs" aria-label="Fullscreen">⛶</button>
-      </div>
-    `);
-    wrap.appendChild(v);
-    // Wire Vimeo SDK for proper fullscreen (native iOS video fullscreen on iPhone).
-    const iframe = v.querySelector("iframe");
-    const fsBtn = v.querySelector(".video-fs");
-    let player = null;
-    try {
-      if (window.Vimeo && window.Vimeo.Player) player = new Vimeo.Player(iframe);
-    } catch {}
-    fsBtn.addEventListener("click", async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      try {
-        if (player) {
-          await player.requestFullscreen();
-          return;
-        }
-      } catch {}
-      // Fallback: generic Fullscreen API on the iframe wrapper (Android/desktop)
-      try {
-        if (iframe.requestFullscreen) await iframe.requestFullscreen();
-        else if (iframe.webkitEnterFullscreen) iframe.webkitEnterFullscreen();
-      } catch {}
-    });
-  }
+  if (ex.videoId) wrap.appendChild(buildVideoEl(ex.videoId));
 
   if (ex.goal) wrap.appendChild(el(`<div class="goal">🎯 ${escapeHtml(ex.goal)}</div>`));
 
@@ -727,6 +747,62 @@ function renderExercise(dayIdx, exIdx) {
       );
     });
     wrap.appendChild(hist);
+  }
+
+  app.appendChild(wrap);
+  setupVideoJump();
+}
+
+// ---------- WARM-UP EXERCISE (simplified: watch + mark done) ----------
+function renderWarmUpExercise(dayIdx, exIdx, day, ex) {
+  const key = exKey(day.name, ex.name);
+  const logsForKey = loadLogs()[key] || [];
+  const done = logsForKey.some((e) => e.date === todayStr());
+
+  const wrap = el(`<div class="ex-view"></div>`);
+  const top = el(`
+    <div class="topbar">
+      <button class="back" aria-label="Back">‹</button>
+      <div class="title-stack">
+        <h1>${escapeHtml(ex.name)}</h1>
+        <div class="sub">${escapeHtml(day.name)} · ${exIdx + 1} of ${day.exercises.length}</div>
+      </div>
+    </div>
+  `);
+  top.querySelector(".back").addEventListener("click", () => go(`#/day/${dayIdx}`));
+  wrap.appendChild(top);
+
+  if (ex.videoId) wrap.appendChild(buildVideoEl(ex.videoId));
+
+  if (ex.goal) wrap.appendChild(el(`<div class="goal">🎯 ${escapeHtml(ex.goal)}</div>`));
+  if (ex.description) {
+    wrap.appendChild(
+      el(`<div class="section"><h3>How to</h3><p class="desc">${escapeHtml(ex.description)}</p></div>`),
+    );
+  }
+
+  const btn = el(
+    `<button class="btn primary" style="height:56px;font-size:17px;margin-top:18px;width:100%">${done ? "Done today ✓ — tap to undo" : "Mark done"}</button>`,
+  );
+  btn.addEventListener("click", () => {
+    const logs = loadLogs();
+    if (!logs[key]) logs[key] = [];
+    const idx = logs[key].findIndex((e) => e.date === todayStr());
+    const wasUndone = idx >= 0;
+    if (wasUndone) logs[key].splice(idx, 1);
+    else logs[key].push({ date: todayStr(), warmup: true });
+    saveLogs(logs);
+    // On mark-done: advance to next warm-up item if any; else back to day.
+    if (!wasUndone && exIdx + 1 < day.exercises.length) go(`#/day/${dayIdx}/ex/${exIdx + 1}`);
+    else go(`#/day/${dayIdx}`);
+  });
+  wrap.appendChild(btn);
+
+  if (logsForKey.length) {
+    const recent = logsForKey.slice(-7).reverse().map((e) => fmtDate(e.date)).join(" · ");
+    wrap.appendChild(
+      el(`<div class="tip" style="margin-top:18px">Recent: ${escapeHtml(recent)}</div>`),
+    );
   }
 
   app.appendChild(wrap);
