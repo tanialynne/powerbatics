@@ -478,18 +478,32 @@ function renderExercise(dayIdx, exIdx) {
   const key = exKey(day.name, ex.name);
   const settings = loadSettings();
   const last = getLastLog(key);
+  const todayEntry = last && last.date === todayStr() ? last : null;
 
-  // Pre-fill draft from last log if none exists
+  // Pre-fill draft:
+  //  - If you already logged this exercise today, load today's sets so you
+  //    can see/edit them. Save will replace today's entry (not duplicate).
+  //  - Otherwise, use last session's values as a ready-to-go starting point.
   let draft = loadDraft(key);
   if (!draft) {
-    if (last) {
+    if (todayEntry) {
+      draft = {
+        sets: todayEntry.sets.map((s) => ({
+          reps: s.reps || "",
+          weight: s.weight || "",
+          done: true,
+        })),
+        rpe: todayEntry.rpe || null,
+        editingToday: true,
+      };
+    } else if (last) {
       draft = {
         sets: last.sets.map((s) => ({ reps: s.reps || "", weight: s.weight || "", done: false })),
       };
-      if (!draft.sets.length) draft.sets = [{ reps: "", weight: "", done: false }];
     } else {
       draft = { sets: [{ reps: "", weight: "", done: false }] };
     }
+    if (!draft.sets.length) draft.sets = [{ reps: "", weight: "", done: false }];
     saveDraft(key, draft);
   }
 
@@ -506,7 +520,6 @@ function renderExercise(dayIdx, exIdx) {
   top.querySelector(".back").addEventListener("click", () => go(`#/day/${dayIdx}`));
   wrap.appendChild(top);
 
-  // Sticky video
   if (ex.videoId) {
     const v = el(`
       <div class="video-wrap" id="video-wrap">
@@ -515,7 +528,6 @@ function renderExercise(dayIdx, exIdx) {
           allow="autoplay; fullscreen; picture-in-picture"
           allowfullscreen
         ></iframe>
-        <button class="video-expand" aria-label="Expand video" style="display:none">⤢</button>
       </div>
     `);
     wrap.appendChild(v);
@@ -533,17 +545,33 @@ function renderExercise(dayIdx, exIdx) {
     );
   }
 
-  // Last-time hint
-  if (last) {
-    const pretty = last.sets
+  // Last-time hint: show the most recent PRIOR session (skip today's entry
+  // if this is a re-entry — otherwise it would just echo back your own sets).
+  const priorEntry = (() => {
+    const arr = loadLogs()[key] || [];
+    for (let i = arr.length - 1; i >= 0; i--) {
+      if (arr[i].date !== todayStr()) return arr[i];
+    }
+    return null;
+  })();
+  if (todayEntry) {
+    wrap.appendChild(
+      el(`
+        <div class="last-hint" style="border-color:var(--good)">
+          <span class="muted">✓ Already logged today — edits will update today's entry.</span>
+        </div>
+      `),
+    );
+  } else if (priorEntry) {
+    const pretty = priorEntry.sets
       .map((s) => `${s.reps || "—"}${s.weight ? `×${s.weight}` : ""}`)
       .join(", ");
     wrap.appendChild(
       el(`
         <div class="last-hint">
-          <span class="muted">Last time (${fmtDate(last.date)}):</span>
+          <span class="muted">Last time (${fmtDate(priorEntry.date)}):</span>
           <strong>${escapeHtml(pretty)}</strong>
-          ${last.rpe ? `<span class="muted"> · RPE ${last.rpe}</span>` : ""}
+          ${priorEntry.rpe ? `<span class="muted"> · RPE ${priorEntry.rpe}</span>` : ""}
         </div>
       `),
     );
@@ -567,7 +595,7 @@ function renderExercise(dayIdx, exIdx) {
       </div>
 
       <div class="btn-row" style="margin-top:14px">
-        <button class="btn primary save">Save workout</button>
+        <button class="btn primary save">${todayEntry ? "Update today's entry" : "Save workout"}</button>
       </div>
     </div>
   `);
@@ -632,7 +660,15 @@ function renderExercise(dayIdx, exIdx) {
     if (!logs[key]) logs[key] = [];
     const entry = { date: todayStr(), sets };
     if (draft.rpe) entry.rpe = draft.rpe;
-    logs[key].push(entry);
+
+    // If the last entry for this exercise is already today, replace it
+    // (editing today's workout, not duplicating).
+    const arr = logs[key];
+    if (arr.length && arr[arr.length - 1].date === todayStr()) {
+      arr[arr.length - 1] = entry;
+    } else {
+      arr.push(entry);
+    }
     saveLogs(logs);
     clearDraft(key);
 
@@ -671,28 +707,33 @@ function renderExercise(dayIdx, exIdx) {
   }
 
   app.appendChild(wrap);
-  setupStickyVideo();
+  setupVideoJump();
 }
 
-// ---------- sticky video (shrinks on scroll) ----------
-function setupStickyVideo() {
+// When the video scrolls off-screen, show a floating "↑ Video" pill so you
+// can pop back up. Uses IntersectionObserver — no layout thrash.
+function setupVideoJump() {
   const v = document.getElementById("video-wrap");
   if (!v) return;
-  const expand = v.querySelector(".video-expand");
-  const onScroll = () => {
-    const y = window.scrollY || document.documentElement.scrollTop;
-    const compact = y > 160;
-    v.classList.toggle("compact", compact);
-    if (expand) expand.style.display = compact ? "flex" : "none";
+  const pill = el(`<button class="video-jump" aria-label="Scroll to video">↑ Video</button>`);
+  document.body.appendChild(pill);
+  pill.addEventListener("click", () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+  const obs = new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) pill.classList.toggle("visible", !e.isIntersecting);
+    },
+    { rootMargin: "-40px 0px 0px 0px" },
+  );
+  obs.observe(v);
+  // Clean up on route change
+  const cleanup = () => {
+    obs.disconnect();
+    pill.remove();
+    window.removeEventListener("hashchange", cleanup);
   };
-  window.addEventListener("scroll", onScroll, { passive: true });
-  onScroll();
-  if (expand) {
-    expand.addEventListener("click", (e) => {
-      e.stopPropagation();
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    });
-  }
+  window.addEventListener("hashchange", cleanup, { once: true });
 }
 
 // ---------- hold timer ----------

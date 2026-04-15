@@ -369,33 +369,28 @@ a, button {
 }
 .rest-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
 
-/* Sticky video, shrinks to corner when scrolled */
-.video-wrap { position: relative; transition: all 0.2s ease; }
-.video-wrap.compact {
+.video-jump {
   position: fixed;
   right: 12px;
   bottom: calc(env(safe-area-inset-bottom) + 90px);
-  width: 160px;
-  padding-top: 0;
-  height: 90px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-weight: 600;
+  font-size: 13px;
+  box-shadow: 0 6px 16px rgba(0,0,0,0.4);
   z-index: 80;
-  border-radius: 12px;
-  border: 2px solid var(--accent);
-  box-shadow: 0 8px 20px rgba(0,0,0,0.6);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(8px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
 }
-.video-expand {
-  position: absolute;
-  top: 4px; right: 4px;
-  width: 28px; height: 28px;
-  border-radius: 8px;
-  background: rgba(0,0,0,0.6);
-  color: #fff;
-  font-size: 14px;
-  align-items: center;
-  justify-content: center;
-  z-index: 2;
-  border: 0;
-  display: none;
+.video-jump.visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
 }
 
 .hero-card {
