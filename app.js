@@ -1,18 +1,67 @@
-// Single-file PWA. Hash routing: #/ , #/day/<i> , #/day/<i>/ex/<j>
+// Powerbatics PWA — single-file app.
+// Routes: #/, #/day/<i>, #/day/<i>/ex/<j>, #/day/<i>/summary, #/settings
+
 const app = document.getElementById("app");
 let program = null;
 
+// ---------- small utils ----------
 const slug = (s) =>
   s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-const todayStr = () => new Date().toISOString().slice(0, 10);
-const fmtDate = (s) => {
-  const d = new Date(s + "T00:00:00");
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
+const iso = (d) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 };
+const todayStr = () => iso(new Date());
+const fmtDate = (s) =>
+  new Date(s + "T00:00:00").toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+const fmtClock = (sec) => {
+  sec = Math.max(0, Math.round(sec));
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+};
+
+function el(html) {
+  const t = document.createElement("template");
+  t.innerHTML = html.trim();
+  return t.content.firstElementChild;
+}
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// Parse "2 minute hold", "90 second hold", "30 sec hold", "hold for 2 min" → seconds
+function parseHoldSeconds(goal) {
+  if (!goal) return null;
+  const g = goal.toLowerCase();
+  let m;
+  if ((m = g.match(/(\d+(?:\.\d+)?)\s*(?:minutes?|mins?)\s*hold/))) {
+    return Math.round(parseFloat(m[1]) * 60);
+  }
+  if ((m = g.match(/(\d+)\s*(?:seconds?|secs?)\s*hold/))) {
+    return parseInt(m[1], 10);
+  }
+  if ((m = g.match(/hold\s*(?:for)?\s*(\d+(?:\.\d+)?)\s*(minutes?|mins?|seconds?|secs?)/))) {
+    const v = parseFloat(m[1]);
+    return /min/.test(m[2]) ? Math.round(v * 60) : Math.round(v);
+  }
+  return null;
+}
 
 // ---------- storage ----------
 const LS_LOGS = "pb.logs.v1";
 const LS_DRAFT = "pb.draft.v1";
+const LS_SETTINGS = "pb.settings.v1";
 
 const loadLogs = () => {
   try { return JSON.parse(localStorage.getItem(LS_LOGS) || "{}"); }
@@ -22,41 +71,83 @@ const saveLogs = (l) => localStorage.setItem(LS_LOGS, JSON.stringify(l));
 
 const exKey = (dayName, exName) => `${slug(dayName)}::${slug(exName)}`;
 
-const loadDraft = (key) => {
-  try { return JSON.parse(localStorage.getItem(`${LS_DRAFT}.${key}`) || "null"); }
+const loadDraft = (k) => {
+  try { return JSON.parse(localStorage.getItem(`${LS_DRAFT}.${k}`) || "null"); }
   catch { return null; }
 };
-const saveDraft = (key, val) =>
-  localStorage.setItem(`${LS_DRAFT}.${key}`, JSON.stringify(val));
-const clearDraft = (key) => localStorage.removeItem(`${LS_DRAFT}.${key}`);
+const saveDraft = (k, v) =>
+  localStorage.setItem(`${LS_DRAFT}.${k}`, JSON.stringify(v));
+const clearDraft = (k) => localStorage.removeItem(`${LS_DRAFT}.${k}`);
 
-const lastDoneDate = (key) => {
-  const logs = loadLogs()[key];
-  if (!logs || !logs.length) return null;
-  return logs[logs.length - 1].date;
+const defaultSettings = { coachPhone: "", defaultRestSec: 90, restEnabled: true };
+const loadSettings = () => {
+  try {
+    return { ...defaultSettings, ...JSON.parse(localStorage.getItem(LS_SETTINGS) || "{}") };
+  } catch { return { ...defaultSettings }; }
 };
+const saveSettings = (s) => localStorage.setItem(LS_SETTINGS, JSON.stringify(s));
+
+const getLastLog = (key) => {
+  const arr = loadLogs()[key];
+  return arr && arr.length ? arr[arr.length - 1] : null;
+};
+const lastDoneDate = (key) => getLastLog(key)?.date || null;
 const doneToday = (key) => lastDoneDate(key) === todayStr();
+
+// All dates across all logs (Set of ISO strings)
+function getLoggedDates() {
+  const s = new Set();
+  const logs = loadLogs();
+  for (const k of Object.keys(logs)) for (const e of logs[k]) s.add(e.date);
+  return s;
+}
+
+function getStreak() {
+  const dates = getLoggedDates();
+  if (!dates.size) return 0;
+  const d = new Date();
+  if (!dates.has(iso(d))) d.setDate(d.getDate() - 1);
+  let n = 0;
+  while (dates.has(iso(d))) {
+    n++;
+    d.setDate(d.getDate() - 1);
+  }
+  return n;
+}
+
+// PR detection: is current reps higher than every prior session's best-reps-in-a-set?
+function priorBestReps(key) {
+  const arr = loadLogs()[key] || [];
+  let best = 0;
+  for (const e of arr.slice(0, -1)) {
+    for (const s of e.sets) {
+      const r = parseFloat(s.reps);
+      if (!isNaN(r) && r > best) best = r;
+    }
+  }
+  return best;
+}
 
 // ---------- routing ----------
 const parseHash = () => {
   const h = location.hash.replace(/^#\/?/, "");
   if (!h) return { view: "home" };
   const parts = h.split("/").filter(Boolean);
+  if (parts[0] === "settings") return { view: "settings" };
   if (parts[0] === "day" && parts[1] != null) {
     const dayIdx = parseInt(parts[1], 10);
-    if (parts[2] === "ex" && parts[3] != null) {
+    if (parts[2] === "ex" && parts[3] != null)
       return { view: "exercise", dayIdx, exIdx: parseInt(parts[3], 10) };
-    }
+    if (parts[2] === "summary") return { view: "summary", dayIdx };
     return { view: "day", dayIdx };
   }
   return { view: "home" };
 };
 const go = (hash) => { location.hash = hash; };
-
 window.addEventListener("hashchange", render);
 window.addEventListener("popstate", render);
 
-// ---------- wake lock (keep screen on during exercise) ----------
+// ---------- wake lock ----------
 let wakeLock = null;
 async function acquireWakeLock() {
   try {
@@ -71,52 +162,23 @@ async function releaseWakeLock() {
   wakeLock = null;
 }
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && parseHash().view === "exercise") {
+  const v = parseHash().view;
+  if (document.visibilityState === "visible" && (v === "exercise" || v === "summary")) {
     acquireWakeLock();
   }
 });
 
-// ---------- rendering ----------
-function el(html) {
-  const t = document.createElement("template");
-  t.innerHTML = html.trim();
-  return t.content.firstElementChild;
-}
-function escapeHtml(s) {
-  return String(s ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function render() {
-  if (!program) return;
-  const route = parseHash();
-  app.innerHTML = "";
-  if (route.view === "exercise") acquireWakeLock();
-  else releaseWakeLock();
-  if (route.view === "home") return renderHome();
-  if (route.view === "day") return renderDay(route.dayIdx);
-  if (route.view === "exercise") return renderExercise(route.dayIdx, route.exIdx);
-}
-
 // ---------- install ("Download") ----------
-// Android/Chromium: the browser fires `beforeinstallprompt`; we stash it and
-// fire it from our own button. iOS Safari has no such API, so we show a
-// step-by-step modal instead.
 let deferredInstallPrompt = null;
 window.addEventListener("beforeinstallprompt", (e) => {
   e.preventDefault();
   deferredInstallPrompt = e;
-  // Re-render so the button can appear/update
   if (program) render();
 });
 window.addEventListener("appinstalled", () => {
   deferredInstallPrompt = null;
   if (program) render();
 });
-
 const isStandalone = () =>
   window.matchMedia("(display-mode: standalone)").matches ||
   window.navigator.standalone === true;
@@ -130,11 +192,7 @@ function showIOSInstallSheet() {
       <div class="sheet">
         <h3 style="margin-bottom:12px">Install Powerbatics</h3>
         <ol style="margin:0 0 16px 18px;padding:0;line-height:1.6">
-          <li>Tap the <strong>Share</strong> button
-              <span style="display:inline-block;width:20px;height:20px;vertical-align:-4px;margin:0 2px;border:1.5px solid currentColor;border-radius:4px;position:relative">
-                <span style="position:absolute;left:50%;top:-6px;transform:translateX(-50%);font-size:14px;line-height:1">↑</span>
-              </span>
-              at the bottom (or top) of Safari.</li>
+          <li>Tap the <strong>Share</strong> button at the bottom of Safari.</li>
           <li>Scroll and pick <strong>Add to Home Screen</strong>.</li>
           <li>Tap <strong>Add</strong>. Open Powerbatics from your home screen.</li>
         </ol>
@@ -146,17 +204,12 @@ function showIOSInstallSheet() {
     </div>
   `);
   sheet.querySelector("button").addEventListener("click", () => sheet.remove());
-  sheet.addEventListener("click", (e) => {
-    if (e.target === sheet) sheet.remove();
-  });
+  sheet.addEventListener("click", (e) => { if (e.target === sheet) sheet.remove(); });
   document.body.appendChild(sheet);
 }
-
 function buildInstallButton() {
   if (isStandalone()) return null;
-  const btn = el(
-    `<button class="install-btn" aria-label="Install app">⤓ Install app</button>`,
-  );
+  const btn = el(`<button class="install-btn" aria-label="Install app">⤓ Install</button>`);
   btn.addEventListener("click", async () => {
     if (deferredInstallPrompt) {
       deferredInstallPrompt.prompt();
@@ -165,25 +218,54 @@ function buildInstallButton() {
       render();
       return;
     }
-    if (isIOS()) return showIOSInstallSheet();
-    // Desktop Safari / Firefox / other browsers that can't install: show hint
     showIOSInstallSheet();
   });
   return btn;
 }
 
+// ---------- WhatsApp helpers ----------
+function whatsappHref(text) {
+  const { coachPhone } = loadSettings();
+  const phone = (coachPhone || "").replace(/[^0-9]/g, "");
+  const base = phone ? `https://wa.me/${phone}` : `https://wa.me/`;
+  return `${base}?text=${encodeURIComponent(text)}`;
+}
+
+// ---------- render entrypoint ----------
+function render() {
+  if (!program) return;
+  const route = parseHash();
+  app.innerHTML = "";
+  if (route.view === "exercise" || route.view === "summary") acquireWakeLock();
+  else releaseWakeLock();
+  if (route.view === "home") return renderHome();
+  if (route.view === "settings") return renderSettings();
+  if (route.view === "day") return renderDay(route.dayIdx);
+  if (route.view === "exercise") return renderExercise(route.dayIdx, route.exIdx);
+  if (route.view === "summary") return renderSummary(route.dayIdx);
+}
+
+// ---------- HOME ----------
 function renderHome() {
   const wrap = el(`<div></div>`);
-  wrap.appendChild(
-    el(`
-      <div class="topbar">
-        <div class="title-stack">
-          <h1>${escapeHtml(program.title || "Powerbatics")}</h1>
-          <div class="sub">Pick a day</div>
-        </div>
+  const streak = getStreak();
+  const top = el(`
+    <div class="topbar">
+      <div class="title-stack">
+        <h1>${escapeHtml(program.title || "Powerbatics")}</h1>
+        <div class="sub">${streak > 0 ? `🔥 ${streak}-day streak` : "Pick a day"}</div>
       </div>
-    `),
-  );
+    </div>
+  `);
+  // Right-side buttons
+  const installBtn = buildInstallButton();
+  if (installBtn) top.appendChild(installBtn);
+  const gear = el(`<button class="gear-btn" aria-label="Settings">⚙︎</button>`);
+  gear.addEventListener("click", () => go("#/settings"));
+  top.appendChild(gear);
+  wrap.appendChild(top);
+
+  wrap.appendChild(renderCalendarStrip());
 
   const list = el(`<div class="list"></div>`);
   program.days.forEach((day, i) => {
@@ -198,10 +280,8 @@ function renderHome() {
     const card = el(`
       <button class="card ${doneCount === total && total > 0 ? "done" : ""}">
         <div class="row">
-          <div>
-            <div class="name">${escapeHtml(day.name)}</div>
-            <div class="meta">${escapeHtml(meta)}</div>
-          </div>
+          <div><div class="name">${escapeHtml(day.name)}</div>
+            <div class="meta">${escapeHtml(meta)}</div></div>
           <span class="chev">›</span>
         </div>
       </button>
@@ -216,25 +296,136 @@ function renderHome() {
       el(`<div class="tip" style="margin-top:18px">${escapeHtml(program.intro)}</div>`),
     );
   }
-
-  const installBtn = buildInstallButton();
-  if (installBtn) {
-    const topbar = wrap.querySelector(".topbar");
-    topbar.appendChild(installBtn);
-  }
   app.appendChild(wrap);
 }
 
+function renderCalendarStrip() {
+  const dates = getLoggedDates();
+  const strip = el(`<div class="cal-strip"></div>`);
+  const today = new Date();
+  // Show 14 days back, oldest on left
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    const did = dates.has(iso(d));
+    const isToday = i === 0;
+    const label = d.toLocaleDateString(undefined, { weekday: "narrow" });
+    const num = d.getDate();
+    strip.appendChild(
+      el(`
+        <div class="cal-day ${did ? "done" : ""} ${isToday ? "today" : ""}">
+          <div class="dow">${label}</div>
+          <div class="num">${num}</div>
+        </div>
+      `),
+    );
+  }
+  return strip;
+}
+
+// ---------- SETTINGS ----------
+function renderSettings() {
+  const s = loadSettings();
+  const wrap = el(`<div></div>`);
+  const top = el(`
+    <div class="topbar">
+      <button class="back" aria-label="Back">‹</button>
+      <div class="title-stack"><h1>Settings</h1></div>
+    </div>
+  `);
+  top.querySelector(".back").addEventListener("click", () => go("#/"));
+  wrap.appendChild(top);
+
+  const form = el(`
+    <div class="list">
+      <div class="settings-row">
+        <label>Coach's WhatsApp number</label>
+        <input type="tel" inputmode="tel" placeholder="+1 778 555 0100"
+               value="${escapeHtml(s.coachPhone)}" id="coach-phone" />
+        <div class="hint">Used by "Send to coach" buttons. Include country code. Leave blank to pick contact each time.</div>
+      </div>
+      <div class="settings-row">
+        <label>Default rest timer (seconds)</label>
+        <input type="number" inputmode="numeric" min="0" max="600" value="${s.defaultRestSec}" id="rest-sec" />
+      </div>
+      <div class="settings-row">
+        <label class="switch">
+          <input type="checkbox" id="rest-on" ${s.restEnabled ? "checked" : ""} />
+          <span>Auto-start rest timer after each set</span>
+        </label>
+      </div>
+      <div class="btn-row">
+        <button class="btn primary" id="save-settings">Save</button>
+      </div>
+
+      <div class="settings-row" style="margin-top:20px">
+        <label>Data</label>
+        <div class="btn-row" style="margin-top:6px">
+          <button class="btn" id="export-logs">Export logs (JSON)</button>
+          <button class="btn" id="import-logs">Import</button>
+        </div>
+        <div class="hint">Back up or move your history between devices.</div>
+      </div>
+    </div>
+  `);
+
+  form.querySelector("#save-settings").addEventListener("click", () => {
+    const next = {
+      coachPhone: form.querySelector("#coach-phone").value.trim(),
+      defaultRestSec: Math.max(0, parseInt(form.querySelector("#rest-sec").value, 10) || 0),
+      restEnabled: form.querySelector("#rest-on").checked,
+    };
+    saveSettings(next);
+    go("#/");
+  });
+
+  form.querySelector("#export-logs").addEventListener("click", () => {
+    const data = JSON.stringify({ logs: loadLogs(), settings: loadSettings() }, null, 2);
+    const blob = new Blob([data], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `powerbatics-backup-${todayStr()}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+
+  form.querySelector("#import-logs").addEventListener("click", () => {
+    const inp = document.createElement("input");
+    inp.type = "file";
+    inp.accept = "application/json";
+    inp.addEventListener("change", async () => {
+      const file = inp.files?.[0];
+      if (!file) return;
+      try {
+        const obj = JSON.parse(await file.text());
+        if (obj.logs) saveLogs(obj.logs);
+        if (obj.settings) saveSettings(obj.settings);
+        alert("Import complete.");
+        render();
+      } catch (e) {
+        alert("Couldn't read that file: " + e.message);
+      }
+    });
+    inp.click();
+  });
+
+  wrap.appendChild(form);
+  app.appendChild(wrap);
+}
+
+// ---------- DAY ----------
 function renderDay(dayIdx) {
   const day = program.days[dayIdx];
   if (!day) return go("#/");
   const wrap = el(`<div></div>`);
+  const doneCount = day.exercises.filter((e) => doneToday(exKey(day.name, e.name))).length;
   const top = el(`
     <div class="topbar">
       <button class="back" aria-label="Back">‹</button>
       <div class="title-stack">
         <h1>${escapeHtml(day.name)}</h1>
-        <div class="sub">${day.exercises.length} exercises</div>
+        <div class="sub">${doneCount} / ${day.exercises.length} done today</div>
       </div>
     </div>
   `);
@@ -266,9 +457,18 @@ function renderDay(dayIdx) {
     list.appendChild(card);
   });
   wrap.appendChild(list);
+
+  if (doneCount === day.exercises.length && day.exercises.length > 0) {
+    const sumBtn = el(
+      `<button class="btn primary" style="margin-top:14px;height:52px">View today's summary →</button>`,
+    );
+    sumBtn.addEventListener("click", () => go(`#/day/${dayIdx}/summary`));
+    wrap.appendChild(sumBtn);
+  }
   app.appendChild(wrap);
 }
 
+// ---------- EXERCISE ----------
 function renderExercise(dayIdx, exIdx) {
   const day = program.days[dayIdx];
   if (!day) return go("#/");
@@ -276,9 +476,24 @@ function renderExercise(dayIdx, exIdx) {
   if (!ex) return go(`#/day/${dayIdx}`);
 
   const key = exKey(day.name, ex.name);
-  const draft = loadDraft(key) || { sets: [{ reps: "", weight: "", done: false }] };
+  const settings = loadSettings();
+  const last = getLastLog(key);
 
-  const wrap = el(`<div></div>`);
+  // Pre-fill draft from last log if none exists
+  let draft = loadDraft(key);
+  if (!draft) {
+    if (last) {
+      draft = {
+        sets: last.sets.map((s) => ({ reps: s.reps || "", weight: s.weight || "", done: false })),
+      };
+      if (!draft.sets.length) draft.sets = [{ reps: "", weight: "", done: false }];
+    } else {
+      draft = { sets: [{ reps: "", weight: "", done: false }] };
+    }
+    saveDraft(key, draft);
+  }
+
+  const wrap = el(`<div class="ex-view"></div>`);
   const top = el(`
     <div class="topbar">
       <button class="back" aria-label="Back">‹</button>
@@ -291,29 +506,44 @@ function renderExercise(dayIdx, exIdx) {
   top.querySelector(".back").addEventListener("click", () => go(`#/day/${dayIdx}`));
   wrap.appendChild(top);
 
+  // Sticky video
   if (ex.videoId) {
-    // muted=1 keeps your music/audible playing. Tap the player's speaker icon to unmute.
     const v = el(`
-      <div class="video-wrap">
+      <div class="video-wrap" id="video-wrap">
         <iframe
           src="https://player.vimeo.com/video/${ex.videoId}?title=0&byline=0&portrait=0&playsinline=1&muted=1"
           allow="autoplay; fullscreen; picture-in-picture"
           allowfullscreen
         ></iframe>
+        <button class="video-expand" aria-label="Expand video" style="display:none">⤢</button>
       </div>
     `);
     wrap.appendChild(v);
   }
 
-  if (ex.goal) {
-    wrap.appendChild(el(`<div class="goal">🎯 ${escapeHtml(ex.goal)}</div>`));
-  }
+  if (ex.goal) wrap.appendChild(el(`<div class="goal">🎯 ${escapeHtml(ex.goal)}</div>`));
+
+  // Hold timer (if goal parseable)
+  const holdSec = parseHoldSeconds(ex.goal);
+  if (holdSec) wrap.appendChild(buildHoldTimer(holdSec));
+
   if (ex.description) {
     wrap.appendChild(
+      el(`<div class="section"><h3>How to</h3><p class="desc">${escapeHtml(ex.description)}</p></div>`),
+    );
+  }
+
+  // Last-time hint
+  if (last) {
+    const pretty = last.sets
+      .map((s) => `${s.reps || "—"}${s.weight ? `×${s.weight}` : ""}`)
+      .join(", ");
+    wrap.appendChild(
       el(`
-        <div class="section">
-          <h3>How to</h3>
-          <p class="desc">${escapeHtml(ex.description)}</p>
+        <div class="last-hint">
+          <span class="muted">Last time (${fmtDate(last.date)}):</span>
+          <strong>${escapeHtml(pretty)}</strong>
+          ${last.rpe ? `<span class="muted"> · RPE ${last.rpe}</span>` : ""}
         </div>
       `),
     );
@@ -327,14 +557,21 @@ function renderExercise(dayIdx, exIdx) {
         <div>#</div><div>Reps</div><div>Weight</div><div>✓</div>
       </div>
       <div class="sets"></div>
-      <div class="btn-row">
+      <div class="btn-row" style="margin-top:8px">
         <button class="btn ghost add-set">+ Add set</button>
+      </div>
+
+      <div class="rpe-block">
+        <div class="muted" style="font-size:12px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">RPE — how hard?</div>
+        <div class="rpe-row" role="radiogroup"></div>
+      </div>
+
+      <div class="btn-row" style="margin-top:14px">
         <button class="btn primary save">Save workout</button>
       </div>
     </div>
   `);
   const setsBox = setsSection.querySelector(".sets");
-
   const renderSets = () => {
     setsBox.innerHTML = "";
     draft.sets.forEach((s, i) => {
@@ -347,18 +584,17 @@ function renderExercise(dayIdx, exIdx) {
         </div>
       `);
       const [repsInp, wtInp] = row.querySelectorAll("input");
-      repsInp.addEventListener("input", () => {
-        s.reps = repsInp.value;
-        saveDraft(key, draft);
-      });
-      wtInp.addEventListener("input", () => {
-        s.weight = wtInp.value;
-        saveDraft(key, draft);
-      });
+      repsInp.addEventListener("input", () => { s.reps = repsInp.value; saveDraft(key, draft); });
+      wtInp.addEventListener("input", () => { s.weight = wtInp.value; saveDraft(key, draft); });
       row.querySelector(".check").addEventListener("click", () => {
+        const wasDone = s.done;
         s.done = !s.done;
         saveDraft(key, draft);
         renderSets();
+        // Start rest timer on newly-completed set
+        if (!wasDone && s.done && settings.restEnabled && settings.defaultRestSec > 0) {
+          startRestTimer(settings.defaultRestSec);
+        }
       });
       setsBox.appendChild(row);
     });
@@ -366,41 +602,57 @@ function renderExercise(dayIdx, exIdx) {
   renderSets();
 
   setsSection.querySelector(".add-set").addEventListener("click", () => {
-    const last = draft.sets[draft.sets.length - 1] || {};
-    draft.sets.push({ reps: last.reps || "", weight: last.weight || "", done: false });
+    const lastSet = draft.sets[draft.sets.length - 1] || {};
+    draft.sets.push({ reps: lastSet.reps || "", weight: lastSet.weight || "", done: false });
     saveDraft(key, draft);
     renderSets();
   });
+
+  // RPE picker
+  const rpeRow = setsSection.querySelector(".rpe-row");
+  for (let r = 1; r <= 5; r++) {
+    const b = el(`<button class="rpe-btn ${draft.rpe === r ? "sel" : ""}">${r}</button>`);
+    b.addEventListener("click", () => {
+      draft.rpe = draft.rpe === r ? null : r;
+      saveDraft(key, draft);
+      rpeRow.querySelectorAll(".rpe-btn").forEach((n, idx) => {
+        n.classList.toggle("sel", idx + 1 === draft.rpe);
+      });
+    });
+    rpeRow.appendChild(b);
+  }
 
   setsSection.querySelector(".save").addEventListener("click", () => {
     const sets = draft.sets
       .filter((s) => s.reps !== "" || s.weight !== "" || s.done)
       .map((s) => ({ reps: s.reps, weight: s.weight }));
-    if (sets.length === 0) {
-      alert("Add at least one set first.");
-      return;
-    }
+    if (sets.length === 0) return alert("Add at least one set first.");
+
     const logs = loadLogs();
     if (!logs[key]) logs[key] = [];
-    logs[key].push({ date: todayStr(), sets });
+    const entry = { date: todayStr(), sets };
+    if (draft.rpe) entry.rpe = draft.rpe;
+    logs[key].push(entry);
     saveLogs(logs);
     clearDraft(key);
-    // Move to next exercise if any, else back to day
-    if (exIdx + 1 < day.exercises.length) go(`#/day/${dayIdx}/ex/${exIdx + 1}`);
-    else go(`#/day/${dayIdx}`);
+
+    // All done today? → summary
+    const allDone = day.exercises.every((e) => doneToday(exKey(day.name, e.name)));
+    if (allDone) return go(`#/day/${dayIdx}/summary`);
+    if (exIdx + 1 < day.exercises.length) return go(`#/day/${dayIdx}/ex/${exIdx + 1}`);
+    return go(`#/day/${dayIdx}`);
   });
 
   wrap.appendChild(setsSection);
 
+  // Send form check to coach
+  const coachBtn = el(`<a class="btn coach" href="${whatsappHref(`Form check — ${ex.name} (${day.name})`)}" target="_blank" rel="noopener">📹 Send form check to coach</a>`);
+  wrap.appendChild(coachBtn);
+
   // History
   const logs = loadLogs()[key] || [];
   if (logs.length) {
-    const hist = el(`
-      <div class="history">
-        <h4>History</h4>
-        <div class="entries"></div>
-      </div>
-    `);
+    const hist = el(`<div class="history"><h4>History</h4><div class="entries"></div></div>`);
     const entries = hist.querySelector(".entries");
     [...logs].reverse().slice(0, 10).forEach((entry) => {
       const summary = entry.sets
@@ -409,7 +661,7 @@ function renderExercise(dayIdx, exIdx) {
       entries.appendChild(
         el(`
           <div class="history-entry">
-            <span>${escapeHtml(summary)}</span>
+            <span>${escapeHtml(summary)}${entry.rpe ? ` <span class="muted">· RPE ${entry.rpe}</span>` : ""}</span>
             <span class="date">${fmtDate(entry.date)}</span>
           </div>
         `),
@@ -419,6 +671,238 @@ function renderExercise(dayIdx, exIdx) {
   }
 
   app.appendChild(wrap);
+  setupStickyVideo();
+}
+
+// ---------- sticky video (shrinks on scroll) ----------
+function setupStickyVideo() {
+  const v = document.getElementById("video-wrap");
+  if (!v) return;
+  const expand = v.querySelector(".video-expand");
+  const onScroll = () => {
+    const y = window.scrollY || document.documentElement.scrollTop;
+    const compact = y > 160;
+    v.classList.toggle("compact", compact);
+    if (expand) expand.style.display = compact ? "flex" : "none";
+  };
+  window.addEventListener("scroll", onScroll, { passive: true });
+  onScroll();
+  if (expand) {
+    expand.addEventListener("click", (e) => {
+      e.stopPropagation();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  }
+}
+
+// ---------- hold timer ----------
+function buildHoldTimer(totalSec) {
+  const box = el(`
+    <div class="timer-card hold">
+      <div class="timer-label">Hold timer</div>
+      <div class="timer-display">${fmtClock(totalSec)}</div>
+      <div class="btn-row">
+        <button class="btn primary" data-act="start">Start</button>
+        <button class="btn ghost" data-act="reset">Reset</button>
+      </div>
+    </div>
+  `);
+  const disp = box.querySelector(".timer-display");
+  const startBtn = box.querySelector('[data-act="start"]');
+  const resetBtn = box.querySelector('[data-act="reset"]');
+
+  let remaining = totalSec;
+  let endAt = null;
+  let tickId = null;
+
+  const stop = () => { if (tickId) { clearInterval(tickId); tickId = null; } };
+  const updateUI = () => {
+    disp.textContent = fmtClock(remaining);
+    startBtn.textContent = tickId ? "Pause" : remaining === totalSec ? "Start" : "Resume";
+    box.classList.toggle("running", !!tickId);
+    box.classList.toggle("done", remaining <= 0);
+  };
+  const tick = () => {
+    remaining = Math.max(0, Math.round((endAt - Date.now()) / 1000));
+    updateUI();
+    if (remaining <= 0) {
+      stop();
+      try { navigator.vibrate?.([200, 100, 200]); } catch {}
+      beep();
+    }
+  };
+  startBtn.addEventListener("click", () => {
+    if (tickId) { stop(); updateUI(); return; }
+    if (remaining <= 0) remaining = totalSec;
+    endAt = Date.now() + remaining * 1000;
+    tick();
+    tickId = setInterval(tick, 250);
+  });
+  resetBtn.addEventListener("click", () => {
+    stop(); remaining = totalSec; updateUI();
+  });
+  updateUI();
+  return box;
+}
+
+// ---------- rest timer (bottom sheet) ----------
+let restSheetEl = null;
+let restInterval = null;
+function startRestTimer(totalSec) {
+  if (restSheetEl) restSheetEl.remove();
+  restSheetEl = el(`
+    <div class="rest-sheet">
+      <div class="rest-title">Rest</div>
+      <div class="rest-display">${fmtClock(totalSec)}</div>
+      <div class="rest-row">
+        <button class="btn ghost" data-act="minus">−15s</button>
+        <button class="btn ghost" data-act="plus">+15s</button>
+        <button class="btn primary" data-act="done">Skip</button>
+      </div>
+    </div>
+  `);
+  document.body.appendChild(restSheetEl);
+  let endAt = Date.now() + totalSec * 1000;
+  const disp = restSheetEl.querySelector(".rest-display");
+  const adj = (delta) => {
+    endAt += delta * 1000;
+    tick();
+  };
+  const stop = () => {
+    clearInterval(restInterval);
+    restInterval = null;
+    if (restSheetEl) { restSheetEl.remove(); restSheetEl = null; }
+  };
+  const tick = () => {
+    const rem = Math.max(0, Math.round((endAt - Date.now()) / 1000));
+    disp.textContent = fmtClock(rem);
+    if (rem <= 0) {
+      try { navigator.vibrate?.([200, 100, 200]); } catch {}
+      beep();
+      stop();
+    }
+  };
+  restSheetEl.querySelector('[data-act="minus"]').addEventListener("click", () => adj(-15));
+  restSheetEl.querySelector('[data-act="plus"]').addEventListener("click", () => adj(15));
+  restSheetEl.querySelector('[data-act="done"]').addEventListener("click", stop);
+  restInterval = setInterval(tick, 250);
+  tick();
+}
+
+// Tiny beep (WebAudio, no asset)
+let audioCtx = null;
+function beep() {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    o.type = "sine"; o.frequency.value = 880;
+    g.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.3, audioCtx.currentTime + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.4);
+    o.start();
+    o.stop(audioCtx.currentTime + 0.42);
+  } catch {}
+}
+
+// ---------- SUMMARY ----------
+function renderSummary(dayIdx) {
+  const day = program.days[dayIdx];
+  if (!day) return go("#/");
+  const today = todayStr();
+  const logs = loadLogs();
+
+  let totalSets = 0;
+  const completedExercises = [];
+  for (const ex of day.exercises) {
+    const key = exKey(day.name, ex.name);
+    const entry = (logs[key] || []).find((e) => e.date === today);
+    if (entry) {
+      totalSets += entry.sets.length;
+      completedExercises.push({ ex, entry });
+    }
+  }
+  const streak = getStreak();
+
+  const wrap = el(`<div></div>`);
+  const top = el(`
+    <div class="topbar">
+      <button class="back" aria-label="Back">‹</button>
+      <div class="title-stack"><h1>${escapeHtml(day.name)} done ✓</h1>
+        <div class="sub">${completedExercises.length} exercises · ${totalSets} sets</div>
+      </div>
+    </div>
+  `);
+  top.querySelector(".back").addEventListener("click", () => go(`#/day/${dayIdx}`));
+  wrap.appendChild(top);
+
+  wrap.appendChild(
+    el(`
+      <div class="hero-card">
+        <div class="hero-big">🔥 ${streak}-day streak</div>
+        <div class="hero-sub">${completedExercises.length} exercises · ${totalSets} sets today</div>
+      </div>
+    `),
+  );
+
+  const detailList = el(`<div class="list" style="margin-top:14px"></div>`);
+  for (const { ex, entry } of completedExercises) {
+    const setsStr = entry.sets
+      .map((s) => `${s.reps || "—"}${s.weight ? `×${s.weight}` : ""}`)
+      .join(", ");
+    detailList.appendChild(
+      el(`
+        <div class="card">
+          <div class="name">${escapeHtml(ex.name)}</div>
+          <div class="meta">${escapeHtml(setsStr)}${entry.rpe ? ` · RPE ${entry.rpe}` : ""}</div>
+        </div>
+      `),
+    );
+  }
+  wrap.appendChild(detailList);
+
+  // Coach share
+  const text = buildCoachText(day, completedExercises);
+  const shareRow = el(`
+    <div class="btn-row" style="margin-top:18px">
+      <a class="btn coach" style="flex:1" href="${whatsappHref(text)}" target="_blank" rel="noopener">
+        💬 Send to coach on WhatsApp
+      </a>
+    </div>
+    <div class="btn-row" style="margin-top:8px">
+      <button class="btn ghost" style="flex:1" id="copy-text">Copy summary</button>
+    </div>
+  `);
+  wrap.appendChild(shareRow);
+  // shareRow is a fragment-ish; we appended one child — re-query via wrap:
+  const copyBtn = wrap.querySelector("#copy-text");
+  if (copyBtn) {
+    copyBtn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(text);
+        copyBtn.textContent = "Copied ✓";
+        setTimeout(() => (copyBtn.textContent = "Copy summary"), 1400);
+      } catch {
+        alert(text);
+      }
+    });
+  }
+
+  app.appendChild(wrap);
+}
+
+function buildCoachText(day, completed) {
+  const lines = [`📅 ${day.name} — ${todayStr()}`];
+  for (const { ex, entry } of completed) {
+    const setsStr = entry.sets
+      .map((s) => `${s.reps || "—"}${s.weight ? `×${s.weight}` : ""}`)
+      .join(", ");
+    lines.push(`• ${ex.name}: ${setsStr}${entry.rpe ? ` (RPE ${entry.rpe})` : ""}`);
+  }
+  const s = getStreak();
+  if (s > 1) lines.push(``, `🔥 ${s}-day streak`);
+  return lines.join("\n");
 }
 
 // ---------- bootstrap ----------
@@ -430,21 +914,17 @@ fetch("program.json", { cache: "no-cache" })
     render();
   })
   .catch((e) => {
-    app.innerHTML = `<p style="padding:20px;color:#f88">Failed to load program.json: ${escapeHtml(
-      e.message,
-    )}</p>`;
+    app.innerHTML = `<p style="padding:20px;color:#f88">Failed to load program.json: ${escapeHtml(e.message)}</p>`;
   });
 
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker
     .register("sw.js")
     .then((reg) => {
-      // Poll for updates every time the app becomes visible.
       const check = () => reg.update().catch(() => {});
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") check();
       });
-
       reg.addEventListener("updatefound", () => {
         const nw = reg.installing;
         if (!nw) return;
@@ -457,7 +937,6 @@ if ("serviceWorker" in navigator) {
     })
     .catch(() => {});
 
-  // When the new SW takes control, reload so the user gets fresh code.
   let reloading = false;
   navigator.serviceWorker.addEventListener("controllerchange", () => {
     if (reloading) return;
@@ -468,9 +947,7 @@ if ("serviceWorker" in navigator) {
 
 function showUpdateBanner(worker) {
   if (document.querySelector(".update-banner")) return;
-  const b = el(
-    `<div class="update-banner">New version ready · <strong>tap to update</strong></div>`,
-  );
+  const b = el(`<div class="update-banner">New version ready · <strong>tap to update</strong></div>`);
   b.addEventListener("click", () => worker.postMessage({ type: "SKIP_WAITING" }));
   document.body.appendChild(b);
 }
