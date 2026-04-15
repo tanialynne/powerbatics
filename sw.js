@@ -1,5 +1,5 @@
 // Tiny service worker: cache app shell, network-first for program.json.
-const CACHE = "pb-v1";
+const CACHE = "pb-v2";
 const SHELL = [
   "./",
   "./index.html",

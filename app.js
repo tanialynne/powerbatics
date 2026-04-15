@@ -56,6 +56,26 @@ const go = (hash) => { location.hash = hash; };
 window.addEventListener("hashchange", render);
 window.addEventListener("popstate", render);
 
+// ---------- wake lock (keep screen on during exercise) ----------
+let wakeLock = null;
+async function acquireWakeLock() {
+  try {
+    if ("wakeLock" in navigator) {
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => { wakeLock = null; });
+    }
+  } catch {}
+}
+async function releaseWakeLock() {
+  try { if (wakeLock) await wakeLock.release(); } catch {}
+  wakeLock = null;
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && parseHash().view === "exercise") {
+    acquireWakeLock();
+  }
+});
+
 // ---------- rendering ----------
 function el(html) {
   const t = document.createElement("template");
@@ -74,9 +94,35 @@ function render() {
   if (!program) return;
   const route = parseHash();
   app.innerHTML = "";
+  if (route.view === "exercise") acquireWakeLock();
+  else releaseWakeLock();
   if (route.view === "home") return renderHome();
   if (route.view === "day") return renderDay(route.dayIdx);
   if (route.view === "exercise") return renderExercise(route.dayIdx, route.exIdx);
+}
+
+// ---------- install hint for iOS Safari ----------
+function maybeShowInstallHint(container) {
+  const dismissed = localStorage.getItem("pb.installHintDismissed") === "1";
+  const isStandalone =
+    window.matchMedia("(display-mode: standalone)").matches ||
+    window.navigator.standalone === true;
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  if (dismissed || isStandalone || !isIOS) return;
+  const banner = el(`
+    <div class="tip" style="border-left:3px solid var(--accent);">
+      <strong style="color:var(--text)">Install this on your Home Screen</strong><br/>
+      Tap the <strong>Share</strong> button in Safari (square with ↑), then
+      <strong>Add to Home Screen</strong>. The app then opens full-screen and
+      won't forget where you were.
+      <div style="margin-top:8px"><button class="btn ghost" style="height:36px">Got it</button></div>
+    </div>
+  `);
+  banner.querySelector("button").addEventListener("click", () => {
+    localStorage.setItem("pb.installHintDismissed", "1");
+    banner.remove();
+  });
+  container.prepend(banner);
 }
 
 function renderHome() {
@@ -124,6 +170,7 @@ function renderHome() {
     );
   }
 
+  maybeShowInstallHint(wrap);
   app.appendChild(wrap);
 }
 
@@ -194,10 +241,11 @@ function renderExercise(dayIdx, exIdx) {
   wrap.appendChild(top);
 
   if (ex.videoId) {
+    // muted=1 keeps your music/audible playing. Tap the player's speaker icon to unmute.
     const v = el(`
       <div class="video-wrap">
         <iframe
-          src="https://player.vimeo.com/video/${ex.videoId}?title=0&byline=0&portrait=0&playsinline=1"
+          src="https://player.vimeo.com/video/${ex.videoId}?title=0&byline=0&portrait=0&playsinline=1&muted=1"
           allow="autoplay; fullscreen; picture-in-picture"
           allowfullscreen
         ></iframe>
