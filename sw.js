@@ -1,5 +1,6 @@
-// Tiny service worker: cache app shell, network-first for program.json.
-const CACHE = "pb-v2";
+// Powerbatics service worker.
+// Bump CACHE when shipping changes you want to force-refresh.
+const CACHE = "pb-v3";
 const SHELL = [
   "./",
   "./index.html",
@@ -7,33 +8,66 @@ const SHELL = [
   "./styles.css",
   "./manifest.webmanifest",
   "./program.json",
+  "./icon-180.png",
+  "./icon-192.png",
+  "./icon-512.png",
 ];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));
-  self.skipWaiting();
 });
+
 self.addEventListener("activate", (e) => {
   e.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))),
-    ),
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))),
+      )
+      .then(() => self.clients.claim()),
   );
-  self.clients.claim();
 });
+
+// Let the page ask us to activate immediately when a new version is ready.
+self.addEventListener("message", (e) => {
+  if (e.data && e.data.type === "SKIP_WAITING") self.skipWaiting();
+});
+
+// Strategy:
+// - Navigations + program.json: network-first (so updates appear fast when online)
+// - Everything else same-origin: cache-first, fall back to network, store for next time
 self.addEventListener("fetch", (e) => {
-  const url = new URL(e.request.url);
-  if (url.origin !== location.origin) return; // let vimeo etc. pass through
-  e.respondWith(
-    caches.match(e.request).then((hit) =>
-      hit ||
-      fetch(e.request)
+  const req = e.request;
+  const url = new URL(req.url);
+  if (url.origin !== location.origin) return;
+
+  const isProgram = url.pathname.endsWith("/program.json");
+  const isNav = req.mode === "navigate";
+
+  if (isProgram || isNav) {
+    e.respondWith(
+      fetch(req)
         .then((r) => {
           const copy = r.clone();
-          caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
+          caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
           return r;
         })
-        .catch(() => hit),
+        .catch(() => caches.match(req).then((m) => m || caches.match("./index.html"))),
+    );
+    return;
+  }
+
+  e.respondWith(
+    caches.match(req).then(
+      (hit) =>
+        hit ||
+        fetch(req)
+          .then((r) => {
+            const copy = r.clone();
+            caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+            return r;
+          })
+          .catch(() => hit),
     ),
   );
 });

@@ -101,28 +101,75 @@ function render() {
   if (route.view === "exercise") return renderExercise(route.dayIdx, route.exIdx);
 }
 
-// ---------- install hint for iOS Safari ----------
-function maybeShowInstallHint(container) {
-  const dismissed = localStorage.getItem("pb.installHintDismissed") === "1";
-  const isStandalone =
-    window.matchMedia("(display-mode: standalone)").matches ||
-    window.navigator.standalone === true;
-  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-  if (dismissed || isStandalone || !isIOS) return;
-  const banner = el(`
-    <div class="tip" style="border-left:3px solid var(--accent);">
-      <strong style="color:var(--text)">Install this on your Home Screen</strong><br/>
-      Tap the <strong>Share</strong> button in Safari (square with ↑), then
-      <strong>Add to Home Screen</strong>. The app then opens full-screen and
-      won't forget where you were.
-      <div style="margin-top:8px"><button class="btn ghost" style="height:36px">Got it</button></div>
+// ---------- install ("Download") ----------
+// Android/Chromium: the browser fires `beforeinstallprompt`; we stash it and
+// fire it from our own button. iOS Safari has no such API, so we show a
+// step-by-step modal instead.
+let deferredInstallPrompt = null;
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  // Re-render so the button can appear/update
+  if (program) render();
+});
+window.addEventListener("appinstalled", () => {
+  deferredInstallPrompt = null;
+  if (program) render();
+});
+
+const isStandalone = () =>
+  window.matchMedia("(display-mode: standalone)").matches ||
+  window.navigator.standalone === true;
+const isIOS = () =>
+  /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+  (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+function showIOSInstallSheet() {
+  const sheet = el(`
+    <div class="sheet-backdrop">
+      <div class="sheet">
+        <h3 style="margin-bottom:12px">Install Powerbatics</h3>
+        <ol style="margin:0 0 16px 18px;padding:0;line-height:1.6">
+          <li>Tap the <strong>Share</strong> button
+              <span style="display:inline-block;width:20px;height:20px;vertical-align:-4px;margin:0 2px;border:1.5px solid currentColor;border-radius:4px;position:relative">
+                <span style="position:absolute;left:50%;top:-6px;transform:translateX(-50%);font-size:14px;line-height:1">↑</span>
+              </span>
+              at the bottom (or top) of Safari.</li>
+          <li>Scroll and pick <strong>Add to Home Screen</strong>.</li>
+          <li>Tap <strong>Add</strong>. Open Powerbatics from your home screen.</li>
+        </ol>
+        <p class="muted" style="font-size:13px;margin-bottom:14px">
+          Only Safari can install apps on iPhone/iPad — not Chrome or other browsers.
+        </p>
+        <button class="btn primary" style="width:100%">Got it</button>
+      </div>
     </div>
   `);
-  banner.querySelector("button").addEventListener("click", () => {
-    localStorage.setItem("pb.installHintDismissed", "1");
-    banner.remove();
+  sheet.querySelector("button").addEventListener("click", () => sheet.remove());
+  sheet.addEventListener("click", (e) => {
+    if (e.target === sheet) sheet.remove();
   });
-  container.prepend(banner);
+  document.body.appendChild(sheet);
+}
+
+function buildInstallButton() {
+  if (isStandalone()) return null;
+  const btn = el(
+    `<button class="install-btn" aria-label="Install app">⤓ Install app</button>`,
+  );
+  btn.addEventListener("click", async () => {
+    if (deferredInstallPrompt) {
+      deferredInstallPrompt.prompt();
+      try { await deferredInstallPrompt.userChoice; } catch {}
+      deferredInstallPrompt = null;
+      render();
+      return;
+    }
+    if (isIOS()) return showIOSInstallSheet();
+    // Desktop Safari / Firefox / other browsers that can't install: show hint
+    showIOSInstallSheet();
+  });
+  return btn;
 }
 
 function renderHome() {
@@ -170,7 +217,11 @@ function renderHome() {
     );
   }
 
-  maybeShowInstallHint(wrap);
+  const installBtn = buildInstallButton();
+  if (installBtn) {
+    const topbar = wrap.querySelector(".topbar");
+    topbar.appendChild(installBtn);
+  }
   app.appendChild(wrap);
 }
 
@@ -385,5 +436,41 @@ fetch("program.json", { cache: "no-cache" })
   });
 
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("sw.js").catch(() => {});
+  navigator.serviceWorker
+    .register("sw.js")
+    .then((reg) => {
+      // Poll for updates every time the app becomes visible.
+      const check = () => reg.update().catch(() => {});
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") check();
+      });
+
+      reg.addEventListener("updatefound", () => {
+        const nw = reg.installing;
+        if (!nw) return;
+        nw.addEventListener("statechange", () => {
+          if (nw.state === "installed" && navigator.serviceWorker.controller) {
+            showUpdateBanner(nw);
+          }
+        });
+      });
+    })
+    .catch(() => {});
+
+  // When the new SW takes control, reload so the user gets fresh code.
+  let reloading = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (reloading) return;
+    reloading = true;
+    location.reload();
+  });
+}
+
+function showUpdateBanner(worker) {
+  if (document.querySelector(".update-banner")) return;
+  const b = el(
+    `<div class="update-banner">New version ready · <strong>tap to update</strong></div>`,
+  );
+  b.addEventListener("click", () => worker.postMessage({ type: "SKIP_WAITING" }));
+  document.body.appendChild(b);
 }
