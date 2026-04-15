@@ -319,7 +319,9 @@ a, button {
 }
 .settings-row label { display: block; font-weight: 600; margin-bottom: 6px; }
 .settings-row input[type="tel"],
-.settings-row input[type="number"] {
+.settings-row input[type="number"],
+.settings-row input[type="url"],
+.settings-row input[type="text"] {
   width: 100%;
   height: var(--tap);
   background: var(--bg);
