@@ -1,8 +1,13 @@
 // Powerbatics PWA — single-file app.
 // Routes: #/, #/day/<i>, #/day/<i>/ex/<j>, #/day/<i>/summary, #/settings
 
+import { parseProgramHtml } from "./parser.mjs";
+
 const app = document.getElementById("app");
 let program = null;
+
+const DEFAULT_PROGRAM_URL =
+  "https://custom.pacificrimathletics.com/tania-griffith-new-custom-program-2/";
 
 // ---------- small utils ----------
 const slug = (s) =>
@@ -62,6 +67,9 @@ function parseHoldSeconds(goal) {
 const LS_LOGS = "pb.logs.v1";
 const LS_DRAFT = "pb.draft.v1";
 const LS_SETTINGS = "pb.settings.v1";
+const LS_PROGRAM = "pb.program.v1";
+const LS_PROGRAM_URL = "pb.programUrl.v1";
+const LS_LAST_REFRESH = "pb.lastRefresh.v1";
 
 const loadLogs = () => {
   try { return JSON.parse(localStorage.getItem(LS_LOGS) || "{}"); }
@@ -240,6 +248,58 @@ function buildInstallButton() {
   return btn;
 }
 
+// ---------- program refresh (pull from coach's WP page via proxy) ----------
+const loadStoredProgram = () => {
+  try { return JSON.parse(localStorage.getItem(LS_PROGRAM) || "null"); }
+  catch { return null; }
+};
+const getProgramUrl = () =>
+  localStorage.getItem(LS_PROGRAM_URL) || DEFAULT_PROGRAM_URL;
+
+function diffPrograms(a, b) {
+  const keysOf = (p) => {
+    const s = new Set();
+    for (const d of p?.days || []) for (const e of d.exercises) s.add(`${d.name}::${e.name}`);
+    return s;
+  };
+  const aK = keysOf(a);
+  const bK = keysOf(b);
+  const added = [...bK].filter((k) => !aK.has(k));
+  const removed = [...aK].filter((k) => !bK.has(k));
+  // Compare video IDs for same key
+  const videoChanged = [];
+  const mapOf = (p) => {
+    const m = new Map();
+    for (const d of p?.days || []) for (const e of d.exercises) m.set(`${d.name}::${e.name}`, e.videoId);
+    return m;
+  };
+  const aV = mapOf(a);
+  const bV = mapOf(b);
+  for (const [k, v] of bV) if (aV.has(k) && aV.get(k) !== v) videoChanged.push(k);
+  return { added, removed, videoChanged };
+}
+
+async function refreshFromCoachPage() {
+  const url = getProgramUrl();
+  const proxy = `/api/coach-page?url=${encodeURIComponent(url)}`;
+  const res = await fetch(proxy, { cache: "no-store" });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Proxy returned ${res.status} ${res.statusText}${body ? " — " + body.slice(0, 120) : ""}`);
+  }
+  const html = await res.text();
+  const next = parseProgramHtml(html);
+  const exerciseCount = next.days.reduce((n, d) => n + d.exercises.length, 0);
+  if (!next.days.length || exerciseCount === 0) {
+    throw new Error("Parser returned no exercises — page structure may have changed.");
+  }
+  const changes = diffPrograms(program, next);
+  localStorage.setItem(LS_PROGRAM, JSON.stringify(next));
+  localStorage.setItem(LS_LAST_REFRESH, new Date().toISOString());
+  program = next;
+  return { changes, exerciseCount };
+}
+
 // ---------- WhatsApp helpers ----------
 function whatsappHref(text) {
   const { coachPhone } = loadSettings();
@@ -353,8 +413,22 @@ function renderSettings() {
   top.querySelector(".back").addEventListener("click", () => go("#/"));
   wrap.appendChild(top);
 
+  const lastRefresh = localStorage.getItem(LS_LAST_REFRESH);
   const form = el(`
     <div class="list">
+      <div class="settings-row">
+        <label>Program source URL</label>
+        <input type="url" inputmode="url" placeholder="https://custom.pacificrimathletics.com/..."
+               value="${escapeHtml(getProgramUrl())}" id="program-url" />
+        <div class="hint">Your coach's public custom-program page. Tap Refresh below to pull the latest exercises &amp; videos.</div>
+        <div class="btn-row" style="margin-top:10px">
+          <button class="btn primary" id="refresh-program" style="flex:1">⟳ Refresh from coach's page</button>
+        </div>
+        <div class="hint" id="refresh-status">
+          ${lastRefresh ? `Last refreshed ${fmtDate(lastRefresh.slice(0, 10))}` : "Never refreshed — using bundled program."}
+        </div>
+      </div>
+
       <div class="settings-row">
         <label>Coach's WhatsApp number</label>
         <input type="tel" inputmode="tel" placeholder="+1 778 555 0100"
@@ -397,7 +471,39 @@ function renderSettings() {
       restEnabled: form.querySelector("#rest-on").checked,
     };
     saveSettings(next);
+    const urlField = form.querySelector("#program-url").value.trim();
+    if (urlField) localStorage.setItem(LS_PROGRAM_URL, urlField);
     go("#/");
+  });
+
+  const refreshBtn = form.querySelector("#refresh-program");
+  const refreshStatus = form.querySelector("#refresh-status");
+  refreshBtn.addEventListener("click", async () => {
+    // Save URL field first so refresh uses what's in the input
+    const urlField = form.querySelector("#program-url").value.trim();
+    if (urlField) localStorage.setItem(LS_PROGRAM_URL, urlField);
+
+    refreshBtn.disabled = true;
+    refreshBtn.textContent = "⟳ Checking…";
+    refreshStatus.textContent = "Fetching your coach's page…";
+    try {
+      const { changes, exerciseCount } = await refreshFromCoachPage();
+      const parts = [];
+      if (changes.added.length) parts.push(`${changes.added.length} new`);
+      if (changes.removed.length) parts.push(`${changes.removed.length} removed`);
+      if (changes.videoChanged.length) parts.push(`${changes.videoChanged.length} video${changes.videoChanged.length > 1 ? "s" : ""} changed`);
+      const summary =
+        parts.length === 0
+          ? `Up to date. ${exerciseCount} exercises.`
+          : `Updated: ${parts.join(", ")}. ${exerciseCount} exercises total.`;
+      refreshStatus.textContent = summary;
+      refreshBtn.textContent = "⟳ Refresh from coach's page";
+    } catch (e) {
+      refreshStatus.textContent = `Couldn't refresh: ${e.message}`;
+      refreshBtn.textContent = "⟳ Try again";
+    } finally {
+      refreshBtn.disabled = false;
+    }
   });
 
   form.querySelector("#export-logs").addEventListener("click", () => {
@@ -1114,16 +1220,25 @@ function buildCoachText(day, completed) {
 }
 
 // ---------- bootstrap ----------
-fetch("program.json", { cache: "no-cache" })
-  .then((r) => r.json())
-  .then((p) => {
-    program = p;
-    if (!location.hash) location.hash = "#/";
-    render();
-  })
-  .catch((e) => {
-    app.innerHTML = `<p style="padding:20px;color:#f88">Failed to load program.json: ${escapeHtml(e.message)}</p>`;
-  });
+// Prefer the refreshed-from-coach program if we have one; otherwise fall
+// back to the bundled program.json that shipped with the app.
+const stored = loadStoredProgram();
+if (stored) {
+  program = stored;
+  if (!location.hash) location.hash = "#/";
+  render();
+} else {
+  fetch("program.json", { cache: "no-cache" })
+    .then((r) => r.json())
+    .then((p) => {
+      program = p;
+      if (!location.hash) location.hash = "#/";
+      render();
+    })
+    .catch((e) => {
+      app.innerHTML = `<p style="padding:20px;color:#f88">Failed to load program: ${escapeHtml(e.message)}</p>`;
+    });
+}
 
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker

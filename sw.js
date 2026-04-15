@@ -1,10 +1,11 @@
 // Powerbatics service worker.
 // Bump CACHE when shipping changes you want to force-refresh.
-const CACHE = "pb-v9";
+const CACHE = "pb-v10";
 const SHELL = [
   "./",
   "./index.html",
   "./app.js",
+  "./parser.mjs",
   "./styles.css",
   "./manifest.webmanifest",
   "./program.json",
@@ -40,6 +41,8 @@ self.addEventListener("fetch", (e) => {
   const req = e.request;
   const url = new URL(req.url);
   if (url.origin !== location.origin) return;
+  // Never intercept proxy calls — always hit the network fresh.
+  if (url.pathname.startsWith("/api/")) return;
 
   const isProgram = url.pathname.endsWith("/program.json");
   const isNav = req.mode === "navigate";

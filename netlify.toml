@@ -1,0 +1,4 @@
+# Netlify build config. The app is static; functions live in netlify/functions.
+[build]
+  publish = "."
+  functions = "netlify/functions"
