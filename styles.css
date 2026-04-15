@@ -369,6 +369,29 @@ a, button {
 }
 .rest-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
 
+.video-fs {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  font-size: 22px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 3;
+  cursor: pointer;
+  line-height: 1;
+}
+.video-fs:active { transform: scale(0.94); background: rgba(0,0,0,0.75); }
+
 .video-jump {
   position: fixed;
   right: 12px;

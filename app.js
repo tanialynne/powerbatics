@@ -528,9 +528,32 @@ function renderExercise(dayIdx, exIdx) {
           allow="autoplay; fullscreen; picture-in-picture"
           allowfullscreen
         ></iframe>
+        <button class="video-fs" aria-label="Fullscreen">⛶</button>
       </div>
     `);
     wrap.appendChild(v);
+    // Wire Vimeo SDK for proper fullscreen (native iOS video fullscreen on iPhone).
+    const iframe = v.querySelector("iframe");
+    const fsBtn = v.querySelector(".video-fs");
+    let player = null;
+    try {
+      if (window.Vimeo && window.Vimeo.Player) player = new Vimeo.Player(iframe);
+    } catch {}
+    fsBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        if (player) {
+          await player.requestFullscreen();
+          return;
+        }
+      } catch {}
+      // Fallback: generic Fullscreen API on the iframe wrapper (Android/desktop)
+      try {
+        if (iframe.requestFullscreen) await iframe.requestFullscreen();
+        else if (iframe.webkitEnterFullscreen) iframe.webkitEnterFullscreen();
+      } catch {}
+    });
   }
 
   if (ex.goal) wrap.appendChild(el(`<div class="goal">🎯 ${escapeHtml(ex.goal)}</div>`));
