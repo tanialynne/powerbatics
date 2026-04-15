@@ -168,6 +168,8 @@ a, button {
   margin-bottom: 4px;
   padding: 0 4px;
 }
+.set-headers.set-headers-2 { grid-template-columns: 36px 1fr 44px; }
+.set-row.set-row-2 { grid-template-columns: 36px 1fr 44px; }
 .set-headers div { text-align: center; }
 
 .btn-row { display: flex; gap: 10px; margin-top: 12px; }
