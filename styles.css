@@ -339,17 +339,6 @@ a, button {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
-.cal-scroller {
-  max-height: none;
-  overflow-y: visible;
-}
-.cal-scroller.expanded {
-  max-height: 300px;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  border-radius: 10px;
-  padding: 2px;
-}
 .cal-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
