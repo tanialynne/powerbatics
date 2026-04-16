@@ -535,70 +535,126 @@ function renderPast() {
   app.appendChild(wrap);
 }
 
-// Default: current week only (1 row). Expanded: scrollable month back in
-// time, with a "Show older" affordance to extend further.
-function renderCalendarStrip(weeks = 1) {
+// Collapsed: month label + current week row.
+// Expanded: month label (tap to pick past months) + full month grid.
+function renderCalendarStrip(opts = {}) {
+  const expanded = !!opts.expanded;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const defaultMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+  const month = opts.month || defaultMonth;
+  const [yr, mo] = month.split("-").map(Number);
+
   const dates = getLoggedDates();
   const wrap = el(`<div class="cal-wrap"></div>`);
-  const dowNames = ["M", "T", "W", "T", "F", "S", "S"];
-  const header = el(`<div class="cal-dow"></div>`);
-  for (const n of dowNames) header.appendChild(el(`<div>${n}</div>`));
+
+  const anchor = new Date(yr, mo - 1, 1);
+  const monthLabel = anchor.toLocaleDateString(undefined, {
+    month: "long",
+    year: yr !== today.getFullYear() ? "numeric" : undefined,
+  });
+  const header = el(`
+    <div class="cal-header">
+      <button class="cal-title ${expanded ? "clickable" : ""}">
+        ${monthLabel}${expanded ? ' <span class="chev">▾</span>' : ""}
+      </button>
+    </div>
+  `);
+  if (expanded) {
+    header.querySelector(".cal-title").addEventListener("click", () => {
+      showMonthPicker(month, (picked) => {
+        wrap.replaceWith(renderCalendarStrip({ expanded: true, month: picked }));
+      });
+    });
+  }
   wrap.appendChild(header);
 
-  const scroller = el(`<div class="cal-scroller ${weeks > 1 ? "expanded" : ""}"></div>`);
+  const dowNames = ["M", "T", "W", "T", "F", "S", "S"];
+  const dowBar = el(`<div class="cal-dow"></div>`);
+  for (const n of dowNames) dowBar.appendChild(el(`<div>${n}</div>`));
+  wrap.appendChild(dowBar);
+
   const grid = el(`<div class="cal-grid"></div>`);
-  const today = new Date(); today.setHours(0,0,0,0);
-  const thisMon = mondayOf(today);
-  for (let w = weeks - 1; w >= 0; w--) {
-    const weekStart = new Date(thisMon);
-    weekStart.setDate(thisMon.getDate() - w * 7);
+  const makeCell = (d) => {
+    const did = dates.has(iso(d));
+    const isToday = iso(d) === iso(today);
+    const inFuture = d > today;
+    return el(`
+      <div class="cal-day ${did ? "done" : ""} ${isToday ? "today" : ""} ${inFuture ? "future" : ""}">
+        <div class="num">${d.getDate()}</div>
+      </div>
+    `);
+  };
+
+  if (!expanded) {
+    // Current week only (Mon–Sun)
+    const mon = mondayOf(today);
     for (let i = 0; i < 7; i++) {
-      const d = new Date(weekStart);
-      d.setDate(weekStart.getDate() + i);
-      const inFuture = d > today;
-      const did = dates.has(iso(d));
-      const isToday = iso(d) === iso(today);
-      grid.appendChild(
-        el(`
-          <div class="cal-day ${did ? "done" : ""} ${isToday ? "today" : ""} ${inFuture ? "future" : ""}">
-            <div class="num">${d.getDate()}</div>
-          </div>
-        `),
-      );
+      const d = new Date(mon); d.setDate(mon.getDate() + i);
+      grid.appendChild(makeCell(d));
+    }
+  } else {
+    // Full month. Start from Monday of week containing day 1, end Sunday
+    // of week containing last day. Out-of-month days are greyed.
+    const monthStart = new Date(yr, mo - 1, 1);
+    const firstMon = mondayOf(monthStart);
+    const monthEnd = new Date(yr, mo, 0);
+    const lastSun = new Date(mondayOf(monthEnd));
+    lastSun.setDate(lastSun.getDate() + 6);
+    for (let d = new Date(firstMon); d <= lastSun; d.setDate(d.getDate() + 1)) {
+      const cell = makeCell(d);
+      if (d.getMonth() !== mo - 1) cell.classList.add("out-of-month");
+      grid.appendChild(cell);
     }
   }
-  scroller.appendChild(grid);
-  wrap.appendChild(scroller);
+  wrap.appendChild(grid);
 
-  // Buttons
-  const row = el(`<div class="cal-actions"></div>`);
-  if (weeks === 1) {
-    const expand = el(`<button class="cal-more">View month ↓</button>`);
-    expand.addEventListener("click", () => {
-      wrap.replaceWith(renderCalendarStrip(5));
-    });
-    row.appendChild(expand);
-  } else {
-    const older = el(`<button class="cal-more">Show older ↑</button>`);
-    older.addEventListener("click", () => {
-      wrap.replaceWith(renderCalendarStrip(weeks + 4));
-    });
-    const collapse = el(`<button class="cal-more">Collapse</button>`);
-    collapse.addEventListener("click", () => {
-      wrap.replaceWith(renderCalendarStrip(1));
-    });
-    row.appendChild(older);
-    row.appendChild(collapse);
-  }
-  wrap.appendChild(row);
+  const actions = el(`<div class="cal-actions"></div>`);
+  const toggle = el(
+    `<button class="cal-more">${expanded ? "Collapse ↑" : "View month ↓"}</button>`,
+  );
+  toggle.addEventListener("click", () => {
+    wrap.replaceWith(renderCalendarStrip({ expanded: !expanded }));
+  });
+  actions.appendChild(toggle);
+  wrap.appendChild(actions);
 
-  // Scroll to bottom so the current week is in view
-  if (weeks > 1) {
-    requestAnimationFrame(() => {
-      scroller.scrollTop = scroller.scrollHeight;
-    });
-  }
   return wrap;
+}
+
+function showMonthPicker(currentMonth, onPick) {
+  const now = new Date();
+  const opts = [];
+  for (let i = 0; i < 18; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const label = d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    opts.push({ key, label });
+  }
+  const sheet = el(`
+    <div class="sheet-backdrop">
+      <div class="sheet">
+        <h3 style="margin:0 0 12px">Pick a month</h3>
+        <div class="month-list"></div>
+        <div class="btn-row" style="margin-top:10px">
+          <button class="btn ghost" id="cancel" style="flex:1">Cancel</button>
+        </div>
+      </div>
+    </div>
+  `);
+  const list = sheet.querySelector(".month-list");
+  for (const o of opts) {
+    const btn = el(
+      `<button class="month-opt ${o.key === currentMonth ? "sel" : ""}">${o.label}</button>`,
+    );
+    btn.addEventListener("click", () => {
+      sheet.remove();
+      onPick(o.key);
+    });
+    list.appendChild(btn);
+  }
+  sheet.querySelector("#cancel").addEventListener("click", () => sheet.remove());
+  sheet.addEventListener("click", (e) => { if (e.target === sheet) sheet.remove(); });
+  document.body.appendChild(sheet);
 }
 
 // ---------- SETTINGS ----------

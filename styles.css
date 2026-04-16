@@ -278,6 +278,53 @@ a, button {
 }
 
 .cal-wrap { margin: 4px 0 14px; }
+.cal-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.cal-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  padding: 4px 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.cal-title.clickable { cursor: pointer; }
+.cal-title.clickable:active { opacity: 0.6; }
+.cal-title .chev { font-size: 12px; color: var(--muted); }
+
+.cal-day.out-of-month { opacity: 0.3; border-color: transparent; background: transparent; }
+.cal-day.out-of-month .num { color: var(--muted); }
+
+.month-list {
+  max-height: 60vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.month-opt {
+  padding: 14px 16px;
+  text-align: left;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 16px;
+  font-weight: 500;
+}
+.month-opt.sel {
+  background: var(--accent);
+  color: #1a0e07;
+  border-color: var(--accent);
+  font-weight: 700;
+}
 .cal-dow {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
