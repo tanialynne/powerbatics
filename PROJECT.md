@@ -91,7 +91,7 @@ generatedHTML.html  raw source for the CLI parse step; not loaded by the app
 ### Install / update
 - One-tap Install button (Android/Chromium native prompt; iOS Safari modal with steps)
 - Silent auto-update: service worker polls on visibility change; "tap to update" pill shows for new versions
-- Works offline after first load
+- App shell works offline after first load (navigation, logging, timers). Videos need network — Vimeo iframes stream on demand and can't be pre-cached from the browser.
 - Screen Wake Lock during exercise and summary views
 - Apple Touch Icon and maskable icons
 

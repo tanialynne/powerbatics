@@ -133,6 +133,50 @@ a, button {
   color: var(--muted);
   font-weight: 700;
 }
+.set-row .idx-col {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--tap);
+}
+.set-row .idx-col .idx { display: block; }
+.set-row .idx-col .del-set {
+  display: none;
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 107, 107, 0.15);
+  color: #ff6b6b;
+  border: 1px solid rgba(255, 107, 107, 0.4);
+  border-radius: 10px;
+  font-size: 18px;
+  font-weight: 700;
+}
+.set-row .idx-col:hover .del-set,
+.set-row .idx-col:active .del-set,
+.set-row .idx-col:focus-within .del-set {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+/* On touch devices, show delete button when row is long-pressed — fall back
+   to always-visible small × in corner so it's discoverable */
+.set-row .idx-col .del-set {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  inset: auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 11px;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+  background: rgba(255, 107, 107, 0.12);
+}
 .set-row input {
   width: 100%;
   height: var(--tap);
@@ -256,25 +300,54 @@ a, button {
   display: inline-flex; align-items: center; justify-content: center;
 }
 
-.cal-strip {
+.cal-wrap { margin: 4px 0 14px; }
+.cal-dow {
   display: grid;
-  grid-template-columns: repeat(14, 1fr);
+  grid-template-columns: repeat(7, 1fr);
   gap: 4px;
-  margin: 4px 0 18px;
+  margin-bottom: 6px;
+}
+.cal-dow div {
+  text-align: center;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
 }
 .cal-day {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 6px 0;
+  padding: 8px 0;
   text-align: center;
   min-width: 0;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-.cal-day .dow { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
-.cal-day .num { font-size: 13px; font-weight: 600; margin-top: 2px; }
+.cal-day .num { font-size: 13px; font-weight: 600; }
 .cal-day.done { background: rgba(255, 120, 73, 0.18); border-color: var(--accent); }
 .cal-day.done .num { color: var(--accent-2); }
 .cal-day.today { outline: 2px solid var(--text); outline-offset: -1px; }
+.cal-day.future { opacity: 0.35; }
+.cal-more {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
 
 .last-hint {
   background: var(--panel-2);
@@ -343,6 +416,8 @@ a, button {
   text-align: center;
   margin: 12px 0 0;
 }
+.timer-card.workout { margin: 0 0 14px; }
+.timer-card.workout .timer-display { font-size: 36px; }
 .timer-card.running { border-color: var(--accent); }
 .timer-card.done { border-color: var(--good); }
 .timer-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }

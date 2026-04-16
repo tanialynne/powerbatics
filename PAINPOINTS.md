@@ -53,7 +53,7 @@ I've been paying for a custom coaching program for 4+ months and rarely actually
 ## What the app fixes
 
 - Day-by-day, exercise-by-exercise flow. Today's workout is one tap from the home screen.
-- Installs as a real app icon. Works offline. Doesn't reload itself.
+- Installs as a real app icon. The app shell works offline — navigation, logging, timers, history — though video playback still needs a connection (Vimeo streams on demand).
 - Videos muted by default — my music keeps playing.
 - Big one-tap fullscreen that works the same on iPhone, iPad, Android.
 - Sets logger (reps or seconds for holds), rest timer, hold timer, RPE, per-exercise history, streaks, and a 14-day calendar strip.

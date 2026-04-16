@@ -70,6 +70,7 @@ const LS_SETTINGS = "pb.settings.v1";
 const LS_PROGRAM = "pb.program.v1";
 const LS_PROGRAM_URL = "pb.programUrl.v1";
 const LS_LAST_REFRESH = "pb.lastRefresh.v1";
+const LS_WORKOUT = "pb.workout.v1";
 
 const loadLogs = () => {
   try { return JSON.parse(localStorage.getItem(LS_LOGS) || "{}"); }
@@ -87,7 +88,7 @@ const saveDraft = (k, v) =>
   localStorage.setItem(`${LS_DRAFT}.${k}`, JSON.stringify(v));
 const clearDraft = (k) => localStorage.removeItem(`${LS_DRAFT}.${k}`);
 
-const defaultSettings = { coachPhone: "", defaultRestSec: 90, restEnabled: true };
+const defaultSettings = { coachPhone: "", defaultRestSec: 90, restEnabled: true, weeklyGoal: 3 };
 const loadSettings = () => {
   try {
     return { ...defaultSettings, ...JSON.parse(localStorage.getItem(LS_SETTINGS) || "{}") };
@@ -127,17 +128,97 @@ function formatSetValue(set, isHold) {
   return String(v);
 }
 
-function getStreak() {
-  const dates = getLoggedDates();
-  if (!dates.size) return 0;
-  const d = new Date();
-  if (!dates.has(iso(d))) d.setDate(d.getDate() - 1);
+// ---------- weekly streak ----------
+// Week = Monday-Sunday (local). A "successful" week = training days >= goal.
+function mondayOf(date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay(); // 0=Sun, 1=Mon, …
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+function weekKey(date) { return iso(mondayOf(date)); }
+
+function countsByWeek() {
+  const m = new Map();
+  for (const d of getLoggedDates()) {
+    const k = weekKey(new Date(d + "T00:00:00"));
+    m.set(k, (m.get(k) || 0) + 1);
+  }
+  return m;
+}
+function currentWeekCount() {
+  return countsByWeek().get(weekKey(new Date())) || 0;
+}
+function weeklyStreak(goal) {
+  if (!goal || goal < 1) return 0;
+  const by = countsByWeek();
+  let d = mondayOf(new Date());
+  // If this week hasn't hit goal yet, start counting from last week.
+  if ((by.get(iso(d)) || 0) < goal) d.setDate(d.getDate() - 7);
   let n = 0;
-  while (dates.has(iso(d))) {
+  while ((by.get(iso(d)) || 0) >= goal) {
     n++;
-    d.setDate(d.getDate() - 1);
+    d.setDate(d.getDate() - 7);
   }
   return n;
+}
+
+// ---------- workout timer ----------
+// Keyed by date::dayIdx, so each training day has its own timer that resets
+// at midnight. State: { accumMs, runningSince } — elapsed = accumMs + (running ? now - runningSince : 0).
+const workoutKey = (dayIdx, date = todayStr()) => `${date}::${dayIdx}`;
+function loadWorkoutState(dayIdx, date) {
+  try {
+    const all = JSON.parse(localStorage.getItem(LS_WORKOUT) || "{}");
+    return all[workoutKey(dayIdx, date)] || null;
+  } catch { return null; }
+}
+function saveWorkoutState(dayIdx, state, date) {
+  try {
+    const all = JSON.parse(localStorage.getItem(LS_WORKOUT) || "{}");
+    if (state) all[workoutKey(dayIdx, date)] = state;
+    else delete all[workoutKey(dayIdx, date)];
+    localStorage.setItem(LS_WORKOUT, JSON.stringify(all));
+  } catch {}
+}
+function workoutElapsedMs(state) {
+  if (!state) return 0;
+  return state.accumMs + (state.runningSince ? Date.now() - state.runningSince : 0);
+}
+function startWorkout(dayIdx) {
+  const cur = loadWorkoutState(dayIdx);
+  if (cur?.runningSince) return cur;
+  const next = { accumMs: cur?.accumMs || 0, runningSince: Date.now() };
+  saveWorkoutState(dayIdx, next);
+  return next;
+}
+function pauseWorkout(dayIdx) {
+  const cur = loadWorkoutState(dayIdx);
+  if (!cur?.runningSince) return cur;
+  const next = { accumMs: workoutElapsedMs(cur), runningSince: null };
+  saveWorkoutState(dayIdx, next);
+  return next;
+}
+function stopWorkout(dayIdx, date) {
+  const cur = loadWorkoutState(dayIdx, date);
+  if (!cur) return 0;
+  const final = cur.runningSince
+    ? workoutElapsedMs(cur)
+    : cur.accumMs;
+  saveWorkoutState(dayIdx, { accumMs: final, runningSince: null }, date);
+  return final;
+}
+function formatDurationMs(ms) {
+  const s = Math.round(ms / 1000);
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  if (m >= 60) {
+    const h = Math.floor(m / 60);
+    return `${h}:${String(m % 60).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  }
+  return `${m}:${String(sec).padStart(2, "0")}`;
 }
 
 // PR detection: is current reps higher than every prior session's best-reps-in-a-set?
@@ -159,11 +240,12 @@ const parseHash = () => {
   if (!h) return { view: "home" };
   const parts = h.split("/").filter(Boolean);
   if (parts[0] === "settings") return { view: "settings" };
+  if (parts[0] === "past") return { view: "past" };
   if (parts[0] === "day" && parts[1] != null) {
     const dayIdx = parseInt(parts[1], 10);
     if (parts[2] === "ex" && parts[3] != null)
       return { view: "exercise", dayIdx, exIdx: parseInt(parts[3], 10) };
-    if (parts[2] === "summary") return { view: "summary", dayIdx };
+    if (parts[2] === "summary") return { view: "summary", dayIdx, date: parts[3] || null };
     return { view: "day", dayIdx };
   }
   return { view: "home" };
@@ -317,20 +399,27 @@ function render() {
   else releaseWakeLock();
   if (route.view === "home") return renderHome();
   if (route.view === "settings") return renderSettings();
+  if (route.view === "past") return renderPast();
   if (route.view === "day") return renderDay(route.dayIdx);
   if (route.view === "exercise") return renderExercise(route.dayIdx, route.exIdx);
-  if (route.view === "summary") return renderSummary(route.dayIdx);
+  if (route.view === "summary") return renderSummary(route.dayIdx, route.date);
 }
 
 // ---------- HOME ----------
 function renderHome() {
   const wrap = el(`<div></div>`);
-  const streak = getStreak();
+  const settings = loadSettings();
+  const goal = settings.weeklyGoal || 3;
+  const wkCount = currentWeekCount();
+  const wkStreak = weeklyStreak(goal);
+  const subParts = [];
+  if (wkStreak > 0) subParts.push(`🔥 ${wkStreak}-week streak`);
+  subParts.push(`${wkCount}/${goal} this week`);
   const top = el(`
     <div class="topbar">
       <div class="title-stack">
         <h1>${escapeHtml(program.title || "Powerbatics")}</h1>
-        <div class="sub">${streak > 0 ? `🔥 ${streak}-day streak` : "Pick a day"}</div>
+        <div class="sub">${subParts.join(" · ")}</div>
       </div>
     </div>
   `);
@@ -368,6 +457,12 @@ function renderHome() {
   });
   wrap.appendChild(list);
 
+  const pastBtn = el(
+    `<button class="card" style="margin-top:14px"><div class="row"><div><div class="name">Past workouts</div><div class="meta">History of completed days</div></div><span class="chev">›</span></div></button>`,
+  );
+  pastBtn.addEventListener("click", () => go("#/past"));
+  wrap.appendChild(pastBtn);
+
   if (program.intro) {
     wrap.appendChild(
       el(`<div class="tip" style="margin-top:18px">${escapeHtml(program.intro)}</div>`),
@@ -376,28 +471,114 @@ function renderHome() {
   app.appendChild(wrap);
 }
 
-function renderCalendarStrip() {
-  const dates = getLoggedDates();
-  const strip = el(`<div class="cal-strip"></div>`);
-  const today = new Date();
-  // Show 14 days back, oldest on left
-  for (let i = 13; i >= 0; i--) {
-    const d = new Date(today);
-    d.setDate(today.getDate() - i);
-    const did = dates.has(iso(d));
-    const isToday = i === 0;
-    const label = d.toLocaleDateString(undefined, { weekday: "narrow" });
-    const num = d.getDate();
-    strip.appendChild(
-      el(`
-        <div class="cal-day ${did ? "done" : ""} ${isToday ? "today" : ""}">
-          <div class="dow">${label}</div>
-          <div class="num">${num}</div>
-        </div>
-      `),
-    );
+// ---------- PAST WORKOUTS ----------
+function getCompletedWorkouts() {
+  const logs = loadLogs();
+  // { "date::dayIdx": count }
+  const byDayDate = new Map();
+  program.days.forEach((day, dayIdx) => {
+    if (isWarmUpDay(day)) return;
+    for (const ex of day.exercises) {
+      const key = exKey(day.name, ex.name);
+      for (const entry of logs[key] || []) {
+        if (entry.warmup) continue;
+        const k = `${entry.date}::${dayIdx}`;
+        byDayDate.set(k, (byDayDate.get(k) || 0) + 1);
+      }
+    }
+  });
+  const out = [];
+  for (const [k, count] of byDayDate) {
+    const [date, dayIdxStr] = k.split("::");
+    const dayIdx = parseInt(dayIdxStr, 10);
+    const day = program.days[dayIdx];
+    if (!day || count < day.exercises.length) continue;
+    const state = loadWorkoutState(dayIdx, date);
+    out.push({ date, dayIdx, dayName: day.name, durationMs: state ? state.accumMs : 0 });
   }
-  return strip;
+  out.sort((a, b) => b.date.localeCompare(a.date));
+  return out;
+}
+
+function renderPast() {
+  const wrap = el(`<div></div>`);
+  const top = el(`
+    <div class="topbar">
+      <button class="back" aria-label="Back">‹</button>
+      <div class="title-stack"><h1>Past workouts</h1></div>
+    </div>
+  `);
+  top.querySelector(".back").addEventListener("click", () => go("#/"));
+  wrap.appendChild(top);
+
+  const completed = getCompletedWorkouts();
+  if (!completed.length) {
+    wrap.appendChild(el(`<div class="tip">No completed workouts yet. Finish a day's exercises and it'll show up here.</div>`));
+  } else {
+    const list = el(`<div class="list"></div>`);
+    for (const w of completed) {
+      const dur = w.durationMs ? ` · ${formatDurationMs(w.durationMs)}` : "";
+      const card = el(`
+        <button class="card">
+          <div class="row">
+            <div><div class="name">${escapeHtml(w.dayName)}</div>
+              <div class="meta">${fmtDate(w.date)}${dur}</div></div>
+            <span class="chev">›</span>
+          </div>
+        </button>
+      `);
+      card.addEventListener("click", () => go(`#/day/${w.dayIdx}/summary/${w.date}`));
+      list.appendChild(card);
+    }
+    wrap.appendChild(list);
+  }
+  app.appendChild(wrap);
+}
+
+function renderCalendarStrip(weeks = 4) {
+  const dates = getLoggedDates();
+  const wrap = el(`<div class="cal-wrap"></div>`);
+  // DOW header (Mon-Sun)
+  const dowNames = ["M", "T", "W", "T", "F", "S", "S"];
+  const header = el(`<div class="cal-dow"></div>`);
+  for (const n of dowNames) header.appendChild(el(`<div>${n}</div>`));
+  wrap.appendChild(header);
+
+  const grid = el(`<div class="cal-grid"></div>`);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const thisMon = mondayOf(today);
+  // Render `weeks` rows ending with current week at the bottom.
+  for (let w = weeks - 1; w >= 0; w--) {
+    const weekStart = new Date(thisMon);
+    weekStart.setDate(thisMon.getDate() - w * 7);
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(weekStart);
+      d.setDate(weekStart.getDate() + i);
+      const inFuture = d > today;
+      const did = dates.has(iso(d));
+      const isToday = iso(d) === iso(today);
+      grid.appendChild(
+        el(`
+          <div class="cal-day ${did ? "done" : ""} ${isToday ? "today" : ""} ${inFuture ? "future" : ""}">
+            <div class="num">${d.getDate()}</div>
+          </div>
+        `),
+      );
+    }
+  }
+  wrap.appendChild(grid);
+
+  // Toggle between 4 weeks and 12 weeks
+  const toggle = el(
+    `<button class="cal-more">${weeks <= 4 ? "See more ↓" : "Show less ↑"}</button>`,
+  );
+  toggle.addEventListener("click", () => {
+    const next = weeks <= 4 ? 12 : 4;
+    const newStrip = renderCalendarStrip(next);
+    wrap.replaceWith(newStrip);
+  });
+  wrap.appendChild(toggle);
+  return wrap;
 }
 
 // ---------- SETTINGS ----------
@@ -440,6 +621,11 @@ function renderSettings() {
         <input type="number" inputmode="numeric" min="0" max="600" value="${s.defaultRestSec}" id="rest-sec" />
       </div>
       <div class="settings-row">
+        <label>Weekly training days goal</label>
+        <input type="number" inputmode="numeric" min="1" max="7" value="${s.weeklyGoal}" id="weekly-goal" />
+        <div class="hint">Streak counts weeks where you hit this many training days (warm-up doesn't count).</div>
+      </div>
+      <div class="settings-row">
         <label class="switch">
           <input type="checkbox" id="rest-on" ${s.restEnabled ? "checked" : ""} />
           <span>Auto-start rest timer after each set</span>
@@ -469,6 +655,7 @@ function renderSettings() {
       coachPhone: form.querySelector("#coach-phone").value.trim(),
       defaultRestSec: Math.max(0, parseInt(form.querySelector("#rest-sec").value, 10) || 0),
       restEnabled: form.querySelector("#rest-on").checked,
+      weeklyGoal: Math.max(1, Math.min(7, parseInt(form.querySelector("#weekly-goal").value, 10) || 3)),
     };
     saveSettings(next);
     const urlField = form.querySelector("#program-url").value.trim();
@@ -522,7 +709,7 @@ function renderSettings() {
     if (!confirm("Really clear everything?")) return;
     // Remove every key we own — leave unrelated keys alone in case this app
     // ever shares storage with something else on the same origin.
-    const prefixes = [LS_LOGS, LS_DRAFT, LS_SETTINGS, "pb.installHintDismissed"];
+    const prefixes = [LS_LOGS, LS_DRAFT, LS_SETTINGS, LS_WORKOUT, LS_PROGRAM, LS_PROGRAM_URL, LS_LAST_REFRESH, "pb.installHintDismissed"];
     const toRemove = [];
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
@@ -574,6 +761,8 @@ function renderDay(dayIdx) {
   `);
   top.querySelector(".back").addEventListener("click", () => go("#/"));
   wrap.appendChild(top);
+
+  if (!isWarmUpDay(day)) wrap.appendChild(buildWorkoutTimer(dayIdx));
 
   const list = el(`<div class="list"></div>`);
   day.exercises.forEach((ex, i) => {
@@ -797,7 +986,10 @@ function renderExercise(dayIdx, exIdx) {
     draft.sets.forEach((s, i) => {
       const row = el(`
         <div class="set-row set-row-2 ${s.done ? "done" : ""}">
-          <div class="idx">${i + 1}</div>
+          <div class="idx-col">
+            <span class="idx">${i + 1}</span>
+            <button class="del-set" aria-label="Delete set">×</button>
+          </div>
           <input inputmode="${valueInputMode}" placeholder="${valuePlaceholder}" value="${escapeHtml(s.reps)}" />
           <button class="check" aria-label="Mark set done">${s.done ? "✓" : "○"}</button>
         </div>
@@ -809,9 +1001,23 @@ function renderExercise(dayIdx, exIdx) {
         s.done = !s.done;
         saveDraft(key, draft);
         renderSets();
-        if (!wasDone && s.done && settings.restEnabled && settings.defaultRestSec > 0) {
-          startRestTimer(settings.defaultRestSec);
+        if (!wasDone && s.done) {
+          // Auto-start workout timer on first completed set of the day.
+          if (!loadWorkoutState(dayIdx)) startWorkout(dayIdx);
+          if (settings.restEnabled && settings.defaultRestSec > 0) {
+            startRestTimer(settings.defaultRestSec);
+          }
         }
+      });
+      row.querySelector(".del-set").addEventListener("click", () => {
+        if (draft.sets.length === 1) {
+          // Keep at least one empty row; clear it instead of removing.
+          draft.sets[0] = { reps: "", done: false };
+        } else {
+          draft.sets.splice(i, 1);
+        }
+        saveDraft(key, draft);
+        renderSets();
       });
       setsBox.appendChild(row);
     });
@@ -831,6 +1037,7 @@ function renderExercise(dayIdx, exIdx) {
     }
     saveDraft(key, draft);
     renderSets();
+    if (!loadWorkoutState(dayIdx)) startWorkout(dayIdx);
     if (settings.restEnabled && settings.defaultRestSec > 0) {
       startRestTimer(settings.defaultRestSec);
     }
@@ -895,7 +1102,11 @@ function renderExercise(dayIdx, exIdx) {
   // History
   const logs = loadLogs()[key] || [];
   if (logs.length) {
-    const hist = el(`<div class="history"><h4>History</h4><div class="entries"></div></div>`);
+    const rpeVals = logs.map((e) => e.rpe).filter((r) => typeof r === "number");
+    const recentRpe = rpeVals.slice(-4);
+    const rpeAvg = recentRpe.length ? (recentRpe.reduce((a, b) => a + b, 0) / recentRpe.length).toFixed(1) : null;
+    const rpeNote = rpeAvg ? ` · Avg RPE last ${recentRpe.length}: ${rpeAvg}` : "";
+    const hist = el(`<div class="history"><h4>History${rpeNote}</h4><div class="entries"></div></div>`);
     const entries = hist.querySelector(".entries");
     [...logs].reverse().slice(0, 10).forEach((entry) => {
       const summary = entry.sets
@@ -1059,6 +1270,67 @@ function buildHoldTimer(totalSec, onLog) {
   return box;
 }
 
+// ---------- workout timer widget (day view) ----------
+function buildWorkoutTimer(dayIdx) {
+  const box = el(`
+    <div class="timer-card workout">
+      <div class="timer-label">Workout timer</div>
+      <div class="timer-display">0:00</div>
+      <div class="btn-row">
+        <button class="btn primary" data-act="toggle">Start</button>
+        <button class="btn ghost" data-act="reset">Reset</button>
+      </div>
+    </div>
+  `);
+  const disp = box.querySelector(".timer-display");
+  const toggleBtn = box.querySelector('[data-act="toggle"]');
+  const resetBtn = box.querySelector('[data-act="reset"]');
+
+  let tickId = null;
+  const refresh = () => {
+    const state = loadWorkoutState(dayIdx);
+    disp.textContent = formatDurationMs(workoutElapsedMs(state));
+    const running = !!state?.runningSince;
+    toggleBtn.textContent = running ? "Pause" : state?.accumMs ? "Resume" : "Start";
+    box.classList.toggle("running", running);
+  };
+
+  const start = () => {
+    if (tickId) return;
+    tickId = setInterval(refresh, 1000);
+  };
+  const stopTick = () => {
+    if (tickId) { clearInterval(tickId); tickId = null; }
+  };
+
+  toggleBtn.addEventListener("click", () => {
+    const state = loadWorkoutState(dayIdx);
+    if (state?.runningSince) {
+      pauseWorkout(dayIdx);
+      stopTick();
+    } else {
+      startWorkout(dayIdx);
+      start();
+    }
+    refresh();
+  });
+  resetBtn.addEventListener("click", () => {
+    if (!confirm("Reset workout timer?")) return;
+    saveWorkoutState(dayIdx, null);
+    stopTick();
+    refresh();
+  });
+
+  // If we arrived and a timer was already running (returning to the view),
+  // kick off the tick loop so the display animates.
+  refresh();
+  if (loadWorkoutState(dayIdx)?.runningSince) start();
+
+  // Clean up on navigation
+  window.addEventListener("hashchange", stopTick, { once: true });
+  return box;
+}
+
 // ---------- rest timer (bottom sheet) ----------
 let restSheetEl = null;
 let restInterval = null;
@@ -1121,41 +1393,57 @@ function beep() {
 }
 
 // ---------- SUMMARY ----------
-function renderSummary(dayIdx) {
+function renderSummary(dayIdx, date) {
   const day = program.days[dayIdx];
   if (!day) return go("#/");
-  const today = todayStr();
+  const forDate = date || todayStr();
   const logs = loadLogs();
 
   let totalSets = 0;
   const completedExercises = [];
   for (const ex of day.exercises) {
     const key = exKey(day.name, ex.name);
-    const entry = (logs[key] || []).find((e) => e.date === today);
+    const entry = (logs[key] || []).find((e) => e.date === forDate);
     if (entry) {
       totalSets += entry.sets.length;
       completedExercises.push({ ex, entry });
     }
   }
-  const streak = getStreak();
+
+  // Stop the workout timer on the first time we hit summary for today.
+  const isToday = forDate === todayStr();
+  let durationMs = 0;
+  if (isToday) {
+    durationMs = stopWorkout(dayIdx, forDate);
+  } else {
+    const state = loadWorkoutState(dayIdx, forDate);
+    if (state) durationMs = state.accumMs;
+  }
+
+  const settings = loadSettings();
+  const wkStreak = weeklyStreak(settings.weeklyGoal || 3);
 
   const wrap = el(`<div></div>`);
   const top = el(`
     <div class="topbar">
       <button class="back" aria-label="Back">‹</button>
       <div class="title-stack"><h1>${escapeHtml(day.name)} done ✓</h1>
-        <div class="sub">${completedExercises.length} exercises · ${totalSets} sets</div>
+        <div class="sub">${fmtDate(forDate)} · ${completedExercises.length} exercises · ${totalSets} sets</div>
       </div>
     </div>
   `);
-  top.querySelector(".back").addEventListener("click", () => go(`#/day/${dayIdx}`));
+  top.querySelector(".back").addEventListener("click", () => {
+    go(date ? "#/past" : `#/day/${dayIdx}`);
+  });
   wrap.appendChild(top);
 
   wrap.appendChild(
     el(`
       <div class="hero-card">
-        <div class="hero-big">🔥 ${streak}-day streak</div>
-        <div class="hero-sub">${completedExercises.length} exercises · ${totalSets} sets today</div>
+        <div class="hero-big">${wkStreak > 0 ? `🔥 ${wkStreak}-week streak` : "Nice work!"}</div>
+        <div class="hero-sub">
+          ${completedExercises.length} exercises · ${totalSets} sets${durationMs ? ` · ${formatDurationMs(durationMs)}` : ""}
+        </div>
       </div>
     `),
   );
@@ -1177,7 +1465,7 @@ function renderSummary(dayIdx) {
   wrap.appendChild(detailList);
 
   // Coach share
-  const text = buildCoachText(day, completedExercises);
+  const text = buildCoachText(day, completedExercises, forDate, durationMs);
   const shareRow = el(`
     <div class="btn-row" style="margin-top:18px">
       <a class="btn coach" style="flex:1" href="${whatsappHref(text)}" target="_blank" rel="noopener">
@@ -1189,7 +1477,6 @@ function renderSummary(dayIdx) {
     </div>
   `);
   wrap.appendChild(shareRow);
-  // shareRow is a fragment-ish; we appended one child — re-query via wrap:
   const copyBtn = wrap.querySelector("#copy-text");
   if (copyBtn) {
     copyBtn.addEventListener("click", async () => {
@@ -1206,16 +1493,18 @@ function renderSummary(dayIdx) {
   app.appendChild(wrap);
 }
 
-function buildCoachText(day, completed) {
-  const lines = [`📅 ${day.name} — ${todayStr()}`];
+function buildCoachText(day, completed, forDate, durationMs) {
+  const lines = [`📅 ${day.name} — ${forDate || todayStr()}`];
+  if (durationMs) lines.push(`⏱ ${formatDurationMs(durationMs)}`);
   for (const { ex, entry } of completed) {
     const setsStr = entry.sets
       .map((s) => formatSetValue(s, isHoldExercise(ex)))
       .join(", ");
     lines.push(`• ${ex.name}: ${setsStr}${entry.rpe ? ` (RPE ${entry.rpe})` : ""}`);
   }
-  const s = getStreak();
-  if (s > 1) lines.push(``, `🔥 ${s}-day streak`);
+  const settings = loadSettings();
+  const ws = weeklyStreak(settings.weeklyGoal || 3);
+  if (ws > 0) lines.push(``, `🔥 ${ws}-week streak · ${currentWeekCount()}/${settings.weeklyGoal || 3} this week`);
   return lines.join("\n");
 }
 
