@@ -88,7 +88,7 @@ const saveDraft = (k, v) =>
   localStorage.setItem(`${LS_DRAFT}.${k}`, JSON.stringify(v));
 const clearDraft = (k) => localStorage.removeItem(`${LS_DRAFT}.${k}`);
 
-const defaultSettings = { coachPhone: "", defaultRestSec: 90, restEnabled: true, weeklyGoal: 3 };
+const defaultSettings = { coachPhone: "", defaultRestSec: 90, restEnabled: true, weeklyGoal: 3, holdPrepSec: 3 };
 const loadSettings = () => {
   try {
     return { ...defaultSettings, ...JSON.parse(localStorage.getItem(LS_SETTINGS) || "{}") };
@@ -635,10 +635,23 @@ function renderCalendarStrip(opts = {}) {
 }
 
 function showMonthPicker(currentMonth, onPick) {
-  // Program begins January 2026. Show every month from the current month
-  // back to Jan 2026, newest first. List auto-grows as time passes.
+  // Show months from now back to the month of your first training log.
+  // Grows automatically — if no training logs yet, shows only current month.
   const now = new Date();
-  const start = { y: 2026, m: 1 };
+  const firstDate = (() => {
+    let e = null;
+    for (const arr of Object.values(loadLogs())) {
+      for (const entry of arr) {
+        if (entry.warmup) continue;
+        if (!e || entry.date < e) e = entry.date;
+      }
+    }
+    return e;
+  })();
+  const start = firstDate
+    ? { y: parseInt(firstDate.slice(0, 4), 10), m: parseInt(firstDate.slice(5, 7), 10) }
+    : { y: now.getFullYear(), m: now.getMonth() + 1 };
+
   const opts = [];
   let y = now.getFullYear();
   let m = now.getMonth() + 1;
@@ -722,6 +735,11 @@ function renderSettings() {
         <div class="hint">Streak counts weeks where you hit this many training days (warm-up doesn't count).</div>
       </div>
       <div class="settings-row">
+        <label>Hold timer prep countdown (seconds)</label>
+        <input type="number" inputmode="numeric" min="0" max="10" value="${s.holdPrepSec}" id="hold-prep" />
+        <div class="hint">Beeps each second before the hold timer starts so you can get into position. Set to 0 to skip.</div>
+      </div>
+      <div class="settings-row">
         <label class="switch">
           <input type="checkbox" id="rest-on" ${s.restEnabled ? "checked" : ""} />
           <span>Auto-start rest timer after each set</span>
@@ -752,6 +770,7 @@ function renderSettings() {
       defaultRestSec: Math.max(0, parseInt(form.querySelector("#rest-sec").value, 10) || 0),
       restEnabled: form.querySelector("#rest-on").checked,
       weeklyGoal: Math.max(1, Math.min(7, parseInt(form.querySelector("#weekly-goal").value, 10) || 3)),
+      holdPrepSec: Math.max(0, Math.min(10, parseInt(form.querySelector("#hold-prep").value, 10) || 0)),
     };
     saveSettings(next);
     const urlField = form.querySelector("#program-url").value.trim();
@@ -1283,61 +1302,149 @@ function renderWarmUpExercise(dayIdx, exIdx, day, ex) {
 }
 
 // ---------- hold timer ----------
+// States: idle | prepping | running | paused
+// - idle: fresh attempt, remaining === totalSec
+// - prepping: counting down prep seconds with per-second beep before the
+//   real timer begins. Cancel by tapping the primary button.
+// - running: hold clock counting down from `remaining` to 0. Tap Pause to
+//   pause (keeps elapsed). Tap Log to capture elapsed and reset to idle.
+//   On hit zero: auto-log full goal, reset to idle.
+// - paused: primary button becomes Resume. Log button still available.
 function buildHoldTimer(totalSec, onLog) {
   const box = el(`
     <div class="timer-card hold">
-      <div class="timer-label">Hold timer — logs when you pause or hit the goal</div>
+      <div class="timer-label">Hold timer</div>
       <div class="timer-display">${fmtClock(totalSec)}</div>
       <div class="btn-row">
-        <button class="btn primary" data-act="start">Start</button>
+        <button class="btn primary" data-act="primary">Start</button>
+        <button class="btn" data-act="log" disabled>Log</button>
         <button class="btn ghost" data-act="reset">Reset</button>
       </div>
     </div>
   `);
   const disp = box.querySelector(".timer-display");
-  const startBtn = box.querySelector('[data-act="start"]');
+  const primaryBtn = box.querySelector('[data-act="primary"]');
+  const logBtn = box.querySelector('[data-act="log"]');
   const resetBtn = box.querySelector('[data-act="reset"]');
 
+  const prepSec = loadSettings().holdPrepSec ?? 3;
+
+  let state = "idle";
   let remaining = totalSec;
   let endAt = null;
-  let tickId = null;
+  let prepLeft = 0;
+  let mainTickId = null;
+  let prepTickId = null;
 
-  const stop = () => { if (tickId) { clearInterval(tickId); tickId = null; } };
-  const updateUI = () => {
-    disp.textContent = fmtClock(remaining);
-    startBtn.textContent = tickId ? "Pause & log" : remaining === totalSec ? "Start" : "Resume";
-    box.classList.toggle("running", !!tickId);
-    box.classList.toggle("done", remaining <= 0);
-  };
+  const clearMain = () => { if (mainTickId) { clearInterval(mainTickId); mainTickId = null; } };
+  const clearPrep = () => { if (prepTickId) { clearInterval(prepTickId); prepTickId = null; } };
+
   const elapsed = () => totalSec - remaining;
-  const tick = () => {
+
+  const updateUI = () => {
+    box.classList.toggle("running", state === "running");
+    box.classList.toggle("prepping", state === "prepping");
+    if (state === "prepping") {
+      disp.textContent = String(prepLeft);
+      primaryBtn.textContent = "Cancel";
+      logBtn.disabled = true;
+    } else if (state === "running") {
+      disp.textContent = fmtClock(remaining);
+      primaryBtn.textContent = "Pause";
+      logBtn.disabled = elapsed() <= 0;
+    } else if (state === "paused") {
+      disp.textContent = fmtClock(remaining);
+      primaryBtn.textContent = "Resume";
+      logBtn.disabled = elapsed() <= 0;
+    } else {
+      // idle
+      disp.textContent = fmtClock(totalSec);
+      primaryBtn.textContent = "Start";
+      logBtn.disabled = true;
+    }
+  };
+
+  const startPrep = () => {
+    remaining = totalSec;
+    if (prepSec <= 0) return startMain();
+    state = "prepping";
+    prepLeft = prepSec;
+    updateUI();
+    beep(660, 0.12); // first prep tick
+    prepTickId = setInterval(() => {
+      prepLeft -= 1;
+      if (prepLeft <= 0) {
+        clearPrep();
+        startMain();
+      } else {
+        updateUI();
+        beep(660, 0.12);
+      }
+    }, 1000);
+  };
+
+  const startMain = () => {
+    state = "running";
+    endAt = Date.now() + remaining * 1000;
+    beep(880, 0.22); // start tone
+    mainTickId = setInterval(tickMain, 250);
+    updateUI();
+  };
+
+  const tickMain = () => {
     remaining = Math.max(0, Math.round((endAt - Date.now()) / 1000));
     updateUI();
     if (remaining <= 0) {
-      stop();
-      try { navigator.vibrate?.([200, 100, 200]); } catch {}
-      beep();
-      // Auto-log a successful hold at full target.
+      clearMain();
+      try { navigator.vibrate?.([220, 100, 220]); } catch {}
+      beep(440, 0.55); // end tone
       if (typeof onLog === "function") onLog(totalSec);
+      remaining = totalSec;
+      state = "idle";
+      updateUI();
     }
   };
-  startBtn.addEventListener("click", () => {
-    if (tickId) {
-      // Pause → log whatever was held.
-      const held = elapsed();
-      stop();
-      updateUI();
-      if (held > 0 && typeof onLog === "function") onLog(held);
-      return;
-    }
-    if (remaining <= 0) remaining = totalSec;
+
+  const pause = () => {
+    clearMain();
+    state = "paused";
+    updateUI();
+  };
+  const resume = () => {
+    state = "running";
     endAt = Date.now() + remaining * 1000;
-    tick();
-    tickId = setInterval(tick, 250);
+    mainTickId = setInterval(tickMain, 250);
+    updateUI();
+  };
+  const cancelPrep = () => {
+    clearPrep();
+    state = "idle";
+    remaining = totalSec;
+    updateUI();
+  };
+  const logNow = () => {
+    const held = elapsed();
+    if (held <= 0) return;
+    clearMain();
+    if (typeof onLog === "function") onLog(held);
+    remaining = totalSec;
+    state = "idle";
+    updateUI();
+  };
+
+  primaryBtn.addEventListener("click", () => {
+    if (state === "idle") startPrep();
+    else if (state === "prepping") cancelPrep();
+    else if (state === "running") pause();
+    else if (state === "paused") resume();
   });
+  logBtn.addEventListener("click", logNow);
   resetBtn.addEventListener("click", () => {
-    stop(); remaining = totalSec; updateUI();
+    clearPrep(); clearMain();
+    state = "idle"; remaining = totalSec;
+    updateUI();
   });
+
   updateUI();
   return box;
 }
@@ -1447,20 +1554,21 @@ function startRestTimer(totalSec) {
   tick();
 }
 
-// Tiny beep (WebAudio, no asset)
+// Tiny beep (WebAudio, no asset). freq in Hz, dur in seconds.
 let audioCtx = null;
-function beep() {
+function beep(freq = 880, dur = 0.25) {
   try {
     audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const now = audioCtx.currentTime;
     const o = audioCtx.createOscillator();
     const g = audioCtx.createGain();
     o.connect(g); g.connect(audioCtx.destination);
-    o.type = "sine"; o.frequency.value = 880;
-    g.gain.setValueAtTime(0.0001, audioCtx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.3, audioCtx.currentTime + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.4);
-    o.start();
-    o.stop(audioCtx.currentTime + 0.42);
+    o.type = "sine"; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.exponentialRampToValueAtTime(0.3, now + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+    o.start(now);
+    o.stop(now + dur + 0.02);
   } catch {}
 }
 

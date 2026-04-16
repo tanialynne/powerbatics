@@ -460,6 +460,8 @@ a, button {
 .timer-card.workout { margin: 0 0 14px; }
 .timer-card.workout .timer-display { font-size: 36px; }
 .timer-card.running { border-color: var(--accent); }
+.timer-card.prepping { border-color: var(--accent-2); }
+.timer-card.prepping .timer-display { color: var(--accent-2); }
 .timer-card.done { border-color: var(--good); }
 .timer-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
 .timer-display {
