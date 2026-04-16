@@ -281,7 +281,15 @@ a, button {
 .cal-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   margin-bottom: 8px;
+  gap: 8px;
+}
+.cal-week {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  flex: 0 0 auto;
 }
 .cal-title {
   font-size: 18px;

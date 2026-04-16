@@ -410,11 +410,11 @@ function renderHome() {
   const wrap = el(`<div></div>`);
   const settings = loadSettings();
   const goal = settings.weeklyGoal || 3;
-  const wkCount = currentWeekCount();
   const wkStreak = weeklyStreak(goal);
+  const totalWorkouts = getCompletedWorkouts().length;
   const subParts = [];
   if (wkStreak > 0) subParts.push(`🔥 ${wkStreak}-week streak`);
-  subParts.push(`${wkCount}/${goal} this week`);
+  subParts.push(`${totalWorkouts} workout${totalWorkouts === 1 ? "" : "s"}`);
   const top = el(`
     <div class="topbar">
       <div class="title-stack">
@@ -552,11 +552,15 @@ function renderCalendarStrip(opts = {}) {
     month: "long",
     year: yr !== today.getFullYear() ? "numeric" : undefined,
   });
+  const settings = loadSettings();
+  const goal = settings.weeklyGoal || 3;
+  const wkCount = currentWeekCount();
   const header = el(`
     <div class="cal-header">
       <button class="cal-title ${expanded ? "clickable" : ""}">
         ${monthLabel}${expanded ? ' <span class="chev">▾</span>' : ""}
       </button>
+      <div class="cal-week">${wkCount}/${goal} this week</div>
     </div>
   `);
   if (expanded) {
@@ -622,13 +626,20 @@ function renderCalendarStrip(opts = {}) {
 }
 
 function showMonthPicker(currentMonth, onPick) {
+  // Program begins January 2026. Show every month from the current month
+  // back to Jan 2026, newest first. List auto-grows as time passes.
   const now = new Date();
+  const start = { y: 2026, m: 1 };
   const opts = [];
-  for (let i = 0; i < 18; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  let y = now.getFullYear();
+  let m = now.getMonth() + 1;
+  while (y > start.y || (y === start.y && m >= start.m)) {
+    const d = new Date(y, m - 1, 1);
+    const key = `${y}-${String(m).padStart(2, "0")}`;
     const label = d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
     opts.push({ key, label });
+    m -= 1;
+    if (m === 0) { m = 12; y -= 1; }
   }
   const sheet = el(`
     <div class="sheet-backdrop">
