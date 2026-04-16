@@ -714,7 +714,15 @@ function renderSettings() {
   });
 
   form.querySelector("#export-logs").addEventListener("click", () => {
-    const data = JSON.stringify({ logs: loadLogs(), settings: loadSettings() }, null, 2);
+    const workout = (() => {
+      try { return JSON.parse(localStorage.getItem(LS_WORKOUT) || "{}"); }
+      catch { return {}; }
+    })();
+    const data = JSON.stringify(
+      { logs: loadLogs(), settings: loadSettings(), workout },
+      null,
+      2,
+    );
     const blob = new Blob([data], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -751,6 +759,7 @@ function renderSettings() {
         const obj = JSON.parse(await file.text());
         if (obj.logs) saveLogs(obj.logs);
         if (obj.settings) saveSettings(obj.settings);
+        if (obj.workout) localStorage.setItem(LS_WORKOUT, JSON.stringify(obj.workout));
         alert("Import complete.");
         render();
       } catch (e) {
