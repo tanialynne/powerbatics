@@ -550,29 +550,6 @@ a, button {
 .video-wrap.fs-mode .video-fs-close { display: flex; }
 body.fs-lock { overflow: hidden; touch-action: none; }
 
-.video-jump {
-  position: fixed;
-  right: 12px;
-  bottom: calc(env(safe-area-inset-bottom) + 90px);
-  background: var(--panel);
-  color: var(--text);
-  border: 1px solid var(--accent);
-  border-radius: 999px;
-  padding: 10px 14px;
-  font-weight: 600;
-  font-size: 13px;
-  box-shadow: 0 6px 16px rgba(0,0,0,0.4);
-  z-index: 80;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(8px);
-  transition: opacity 0.18s ease, transform 0.18s ease;
-}
-.video-jump.visible {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateY(0);
-}
 
 .hero-card {
   background: linear-gradient(135deg, rgba(255,120,73,0.2), rgba(255,120,73,0.05));

@@ -1216,7 +1216,6 @@ function renderExercise(dayIdx, exIdx) {
   }
 
   app.appendChild(wrap);
-  setupVideoJump();
 }
 
 // ---------- WARM-UP EXERCISE (simplified: watch + mark done) ----------
@@ -1272,33 +1271,6 @@ function renderWarmUpExercise(dayIdx, exIdx, day, ex) {
   }
 
   app.appendChild(wrap);
-  setupVideoJump();
-}
-
-// When the video scrolls off-screen, show a floating "↑ Video" pill so you
-// can pop back up. Uses IntersectionObserver — no layout thrash.
-function setupVideoJump() {
-  const v = document.getElementById("video-wrap");
-  if (!v) return;
-  const pill = el(`<button class="video-jump" aria-label="Scroll to video">↑ Video</button>`);
-  document.body.appendChild(pill);
-  pill.addEventListener("click", () => {
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  });
-  const obs = new IntersectionObserver(
-    (entries) => {
-      for (const e of entries) pill.classList.toggle("visible", !e.isIntersecting);
-    },
-    { rootMargin: "-40px 0px 0px 0px" },
-  );
-  obs.observe(v);
-  // Clean up on route change
-  const cleanup = () => {
-    obs.disconnect();
-    pill.remove();
-    window.removeEventListener("hashchange", cleanup);
-  };
-  window.addEventListener("hashchange", cleanup, { once: true });
 }
 
 // ---------- hold timer ----------
