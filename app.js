@@ -492,9 +492,16 @@ function getCompletedWorkouts() {
     const [date, dayIdxStr] = k.split("::");
     const dayIdx = parseInt(dayIdxStr, 10);
     const day = program.days[dayIdx];
-    if (!day || count < day.exercises.length) continue;
+    if (!day) continue;
     const state = loadWorkoutState(dayIdx, date);
-    out.push({ date, dayIdx, dayName: day.name, durationMs: state ? state.accumMs : 0 });
+    out.push({
+      date,
+      dayIdx,
+      dayName: day.name,
+      count,
+      total: day.exercises.length,
+      durationMs: state ? state.accumMs : 0,
+    });
   }
   out.sort((a, b) => b.date.localeCompare(a.date));
   return out;
@@ -518,11 +525,13 @@ function renderPast() {
     const list = el(`<div class="list"></div>`);
     for (const w of completed) {
       const dur = w.durationMs ? ` · ${formatDurationMs(w.durationMs)}` : "";
+      const exerciseInfo = `${w.count}/${w.total} exercises`;
+      const partial = w.count < w.total ? " (partial)" : "";
       const card = el(`
-        <button class="card">
+        <button class="card ${w.count < w.total ? "partial" : ""}">
           <div class="row">
-            <div><div class="name">${escapeHtml(w.dayName)}</div>
-              <div class="meta">${fmtDate(w.date)}${dur}</div></div>
+            <div><div class="name">${escapeHtml(w.dayName)}${partial}</div>
+              <div class="meta">${fmtDate(w.date)} · ${exerciseInfo}${dur}</div></div>
             <span class="chev">›</span>
           </div>
         </button>
@@ -1059,7 +1068,7 @@ function renderExercise(dayIdx, exIdx) {
     <div class="section">
       <h3>Sets</h3>
       <div class="set-headers set-headers-2">
-        <div></div><div>#</div><div>${valueLabel}</div><div>✓</div>
+        <div>#</div><div>${valueLabel}</div><div>✓</div><div></div>
       </div>
       <div class="sets"></div>
       <div class="btn-row" style="margin-top:8px">
@@ -1083,10 +1092,10 @@ function renderExercise(dayIdx, exIdx) {
       const canDelete = i > 0;
       const row = el(`
         <div class="set-row set-row-2 ${s.done ? "done" : ""}">
-          <button class="del-set" aria-label="Delete set" ${canDelete ? "" : 'style="visibility:hidden"'}>×</button>
           <div class="idx">${i + 1}</div>
           <input inputmode="${valueInputMode}" placeholder="${valuePlaceholder}" value="${escapeHtml(s.reps)}" />
           <button class="check" aria-label="Mark set done">${s.done ? "✓" : "○"}</button>
+          <button class="del-set" aria-label="Delete set" ${canDelete ? "" : 'style="visibility:hidden"'}>×</button>
         </div>
       `);
       const inp = row.querySelector("input");
