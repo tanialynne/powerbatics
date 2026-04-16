@@ -13,7 +13,6 @@ I've been four months into the custom program and barely doing it (I'd do some e
 - It's all on one endless page, so losing my spot meant scrolling through all the days of exercises to find where I was.
 - Tapping a video to go fullscreen kicked me out of my spot too.
 - Videos didn't always loop, so I'd have to manually restart them while trying to do something new... which also sometimes caused the page to reload. 
-- On patchy wifi, videos just don't load.
 
 All together, the page was annoying enough that the whole program just didn't happen for me... at least not the way it was meant to. And I love this program. I love the coaching and I love the training. But I hate the Wordpress page. 
 

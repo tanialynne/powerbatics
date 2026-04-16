@@ -535,19 +535,20 @@ function renderPast() {
   app.appendChild(wrap);
 }
 
-function renderCalendarStrip(weeks = 4) {
+// Default: current week only (1 row). Expanded: scrollable month back in
+// time, with a "Show older" affordance to extend further.
+function renderCalendarStrip(weeks = 1) {
   const dates = getLoggedDates();
   const wrap = el(`<div class="cal-wrap"></div>`);
-  // DOW header (Mon-Sun)
   const dowNames = ["M", "T", "W", "T", "F", "S", "S"];
   const header = el(`<div class="cal-dow"></div>`);
   for (const n of dowNames) header.appendChild(el(`<div>${n}</div>`));
   wrap.appendChild(header);
 
+  const scroller = el(`<div class="cal-scroller ${weeks > 1 ? "expanded" : ""}"></div>`);
   const grid = el(`<div class="cal-grid"></div>`);
   const today = new Date(); today.setHours(0,0,0,0);
   const thisMon = mondayOf(today);
-  // Render `weeks` rows ending with current week at the bottom.
   for (let w = weeks - 1; w >= 0; w--) {
     const weekStart = new Date(thisMon);
     weekStart.setDate(thisMon.getDate() - w * 7);
@@ -566,18 +567,37 @@ function renderCalendarStrip(weeks = 4) {
       );
     }
   }
-  wrap.appendChild(grid);
+  scroller.appendChild(grid);
+  wrap.appendChild(scroller);
 
-  // Toggle between 4 weeks and 12 weeks
-  const toggle = el(
-    `<button class="cal-more">${weeks <= 4 ? "See more ↓" : "Show less ↑"}</button>`,
-  );
-  toggle.addEventListener("click", () => {
-    const next = weeks <= 4 ? 12 : 4;
-    const newStrip = renderCalendarStrip(next);
-    wrap.replaceWith(newStrip);
-  });
-  wrap.appendChild(toggle);
+  // Buttons
+  const row = el(`<div class="cal-actions"></div>`);
+  if (weeks === 1) {
+    const expand = el(`<button class="cal-more">View month ↓</button>`);
+    expand.addEventListener("click", () => {
+      wrap.replaceWith(renderCalendarStrip(5));
+    });
+    row.appendChild(expand);
+  } else {
+    const older = el(`<button class="cal-more">Show older ↑</button>`);
+    older.addEventListener("click", () => {
+      wrap.replaceWith(renderCalendarStrip(weeks + 4));
+    });
+    const collapse = el(`<button class="cal-more">Collapse</button>`);
+    collapse.addEventListener("click", () => {
+      wrap.replaceWith(renderCalendarStrip(1));
+    });
+    row.appendChild(older);
+    row.appendChild(collapse);
+  }
+  wrap.appendChild(row);
+
+  // Scroll to bottom so the current week is in view
+  if (weeks > 1) {
+    requestAnimationFrame(() => {
+      scroller.scrollTop = scroller.scrollHeight;
+    });
+  }
   return wrap;
 }
 
@@ -963,7 +983,7 @@ function renderExercise(dayIdx, exIdx) {
     <div class="section">
       <h3>Sets</h3>
       <div class="set-headers set-headers-2">
-        <div>#</div><div>${valueLabel}</div><div>✓</div>
+        <div></div><div>#</div><div>${valueLabel}</div><div>✓</div>
       </div>
       <div class="sets"></div>
       <div class="btn-row" style="margin-top:8px">
@@ -984,12 +1004,11 @@ function renderExercise(dayIdx, exIdx) {
   const renderSets = () => {
     setsBox.innerHTML = "";
     draft.sets.forEach((s, i) => {
+      const canDelete = i > 0;
       const row = el(`
         <div class="set-row set-row-2 ${s.done ? "done" : ""}">
-          <div class="idx-col">
-            <span class="idx">${i + 1}</span>
-            <button class="del-set" aria-label="Delete set">×</button>
-          </div>
+          <button class="del-set" aria-label="Delete set" ${canDelete ? "" : 'style="visibility:hidden"'}>×</button>
+          <div class="idx">${i + 1}</div>
           <input inputmode="${valueInputMode}" placeholder="${valuePlaceholder}" value="${escapeHtml(s.reps)}" />
           <button class="check" aria-label="Mark set done">${s.done ? "✓" : "○"}</button>
         </div>
@@ -1010,12 +1029,8 @@ function renderExercise(dayIdx, exIdx) {
         }
       });
       row.querySelector(".del-set").addEventListener("click", () => {
-        if (draft.sets.length === 1) {
-          // Keep at least one empty row; clear it instead of removing.
-          draft.sets[0] = { reps: "", done: false };
-        } else {
-          draft.sets.splice(i, 1);
-        }
+        if (!canDelete) return;
+        draft.sets.splice(i, 1);
         saveDraft(key, draft);
         renderSets();
       });

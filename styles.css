@@ -133,49 +133,26 @@ a, button {
   color: var(--muted);
   font-weight: 700;
 }
-.set-row .idx-col {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: var(--tap);
-}
-.set-row .idx-col .idx { display: block; }
-.set-row .idx-col .del-set {
-  display: none;
-  position: absolute;
-  inset: 0;
-  background: rgba(255, 107, 107, 0.15);
-  color: #ff6b6b;
-  border: 1px solid rgba(255, 107, 107, 0.4);
-  border-radius: 10px;
-  font-size: 18px;
-  font-weight: 700;
-}
-.set-row .idx-col:hover .del-set,
-.set-row .idx-col:active .del-set,
-.set-row .idx-col:focus-within .del-set {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-/* On touch devices, show delete button when row is long-pressed — fall back
-   to always-visible small × in corner so it's discoverable */
-.set-row .idx-col .del-set {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  inset: auto;
-  width: 22px;
-  height: 22px;
-  border-radius: 11px;
-  font-size: 14px;
+.set-row .del-set {
+  width: 24px;
+  height: 24px;
+  border-radius: 12px;
+  background: transparent;
+  color: rgba(255, 107, 107, 0.75);
+  border: 1px solid rgba(255, 107, 107, 0.35);
+  font-size: 15px;
+  font-weight: 600;
   line-height: 1;
   padding: 0;
-  background: rgba(255, 107, 107, 0.12);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: center;
+}
+.set-row .del-set:active {
+  background: rgba(255, 107, 107, 0.18);
+  color: #ff6b6b;
+  border-color: #ff6b6b;
 }
 .set-row input {
   width: 100%;
@@ -212,8 +189,8 @@ a, button {
   margin-bottom: 4px;
   padding: 0 4px;
 }
-.set-headers.set-headers-2 { grid-template-columns: 36px 1fr 44px; }
-.set-row.set-row-2 { grid-template-columns: 36px 1fr 44px; }
+.set-headers.set-headers-2 { grid-template-columns: 28px 36px 1fr 44px; }
+.set-row.set-row-2 { grid-template-columns: 28px 36px 1fr 44px; }
 .set-headers div { text-align: center; }
 
 .btn-row { display: flex; gap: 10px; margin-top: 12px; }
@@ -315,11 +292,28 @@ a, button {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+.cal-scroller {
+  max-height: none;
+  overflow-y: visible;
+}
+.cal-scroller.expanded {
+  max-height: 300px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 10px;
+  padding: 2px;
+}
 .cal-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 4px;
 }
+.cal-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+.cal-actions .cal-more { flex: 1; }
 .cal-day {
   background: var(--panel);
   border: 1px solid var(--border);
