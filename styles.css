@@ -193,7 +193,9 @@ a, button {
 }
 .set-headers.set-headers-2 { grid-template-columns: 24px minmax(0, 1fr) 54px 54px; }
 .set-row.set-row-2 { grid-template-columns: 24px minmax(0, 1fr) 54px 54px; }
-.set-row.set-row-2 input { max-width: 140px; justify-self: start; }
+.set-headers.set-headers-dual { grid-template-columns: 24px 1fr 1fr 50px 50px; }
+.set-row.set-row-dual { grid-template-columns: 24px 1fr 1fr 50px 50px; }
+.set-row .del-set:disabled { opacity: 0.15; pointer-events: none; }
 .set-headers div { text-align: center; }
 
 .btn-row { display: flex; gap: 10px; margin-top: 12px; }

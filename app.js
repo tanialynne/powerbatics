@@ -115,17 +115,14 @@ function getLoggedDates() {
 
 const isWarmUpDay = (day) => /warm\s*up/i.test(day?.name || "");
 const isHoldExercise = (ex) => parseHoldSeconds(ex?.goal) != null;
+const isUntimed = (ex) =>
+  !parseHoldSeconds(ex?.goal) && /hold/i.test(ex?.goal || "");
 
-// Display a set value — for holds, seconds display as mm:ss when numeric.
-function formatSetValue(set, isHold) {
-  const v = set?.reps ?? "";
-  if (!v && v !== 0) return "—";
-  if (isHold) {
-    const n = parseFloat(String(v));
-    if (!isNaN(n) && !/:/.test(String(v))) return fmtClock(n);
-    return String(v);
-  }
-  return String(v);
+function formatSetValue(set) {
+  const parts = [];
+  if (set?.reps) parts.push(set.reps);
+  if (set?.time) parts.push(set.time);
+  return parts.length ? parts.join(" × ") : "—";
 }
 
 // ---------- weekly streak ----------
@@ -939,7 +936,7 @@ function buildVideoEl(videoId) {
       <iframe
         src="https://player.vimeo.com/video/${videoId}?title=0&byline=0&portrait=0&playsinline=1&muted=1"
         allow="autoplay; fullscreen; picture-in-picture"
-        allowfullscreen
+        allowfullscreen loading="lazy"
       ></iframe>
       <button class="video-fs" aria-label="Fullscreen">⛶</button>
       <button class="video-fs-close" aria-label="Exit fullscreen">✕</button>
@@ -999,18 +996,18 @@ function renderExercise(dayIdx, exIdx) {
   if (!draft) {
     if (todayEntry) {
       draft = {
-        sets: todayEntry.sets.map((s) => ({ reps: s.reps || "", done: true })),
+        sets: todayEntry.sets.map((s) => ({ reps: s.reps || "", time: s.time || "", done: true })),
         rpe: todayEntry.rpe || null,
         editingToday: true,
       };
     } else if (last) {
       draft = {
-        sets: last.sets.map((s) => ({ reps: s.reps || "", done: false })),
+        sets: last.sets.map((s) => ({ reps: s.reps || "", time: s.time || "", done: false })),
       };
     } else {
-      draft = { sets: [{ reps: "", done: false }] };
+      draft = { sets: [{ reps: "", time: "", done: false }] };
     }
-    if (!draft.sets.length) draft.sets = [{ reps: "", done: false }];
+    if (!draft.sets.length) draft.sets = [{ reps: "", time: "", done: false }];
     saveDraft(key, draft);
   }
 
@@ -1031,12 +1028,14 @@ function renderExercise(dayIdx, exIdx) {
 
   if (ex.goal) wrap.appendChild(el(`<div class="goal">🎯 ${escapeHtml(ex.goal)}</div>`));
 
-  // Hold timer wires into the sets logger — log-on-pause and auto-log-on-zero
-  // so you don't have to type the duration in.
   let logHeldSet = null;
   if (isHoldEx) {
     wrap.appendChild(
       buildHoldTimer(holdSec, (elapsedSec) => logHeldSet && logHeldSet(elapsedSec)),
+    );
+  } else if (isUntimed(ex)) {
+    wrap.appendChild(
+      buildStopwatch((elapsedSec) => logHeldSet && logHeldSet(elapsedSec)),
     );
   }
 
@@ -1065,7 +1064,7 @@ function renderExercise(dayIdx, exIdx) {
     );
   } else if (priorEntry) {
     const pretty = priorEntry.sets
-      .map((s) => formatSetValue(s, isHoldEx))
+      .map((s) => formatSetValue(s))
       .join(", ");
     wrap.appendChild(
       el(`
@@ -1078,16 +1077,11 @@ function renderExercise(dayIdx, exIdx) {
     );
   }
 
-  // Sets logger — single value column (Reps for rep-based, Seconds for holds)
-  const valueLabel = isHoldEx ? "Seconds" : "Reps";
-  const valueInputMode = isHoldEx ? "text" : "decimal";
-  const valuePlaceholder = isHoldEx ? "1:30" : "—";
-
   const setsSection = el(`
     <div class="section">
       <h3>Sets</h3>
-      <div class="set-headers set-headers-2">
-        <div>#</div><div>${valueLabel}</div><div>✓</div><div></div>
+      <div class="set-headers set-headers-dual">
+        <div>#</div><div>Reps</div><div>Time</div><div>✓</div><div></div>
       </div>
       <div class="sets"></div>
       <div class="btn-row" style="margin-top:8px">
@@ -1110,15 +1104,18 @@ function renderExercise(dayIdx, exIdx) {
     draft.sets.forEach((s, i) => {
       const canDelete = i > 0;
       const row = el(`
-        <div class="set-row set-row-2 ${s.done ? "done" : ""}">
+        <div class="set-row set-row-dual ${s.done ? "done" : ""}">
           <div class="idx">${i + 1}</div>
-          <input inputmode="${valueInputMode}" placeholder="${valuePlaceholder}" value="${escapeHtml(s.reps)}" />
+          <input class="inp-reps" inputmode="decimal" placeholder="—" value="${escapeHtml(s.reps || "")}" />
+          <input class="inp-time" inputmode="text" placeholder="0:00" value="${escapeHtml(s.time || "")}" />
           <button class="check" aria-label="Mark set done">${s.done ? "✓" : "○"}</button>
-          <button class="del-set" aria-label="Delete set" ${canDelete ? "" : 'style="visibility:hidden"'}>×</button>
+          <button class="del-set" aria-label="Delete set" ${canDelete ? "" : "disabled"}>×</button>
         </div>
       `);
-      const inp = row.querySelector("input");
-      inp.addEventListener("input", () => { s.reps = inp.value; saveDraft(key, draft); });
+      const repsInp = row.querySelector(".inp-reps");
+      const timeInp = row.querySelector(".inp-time");
+      repsInp.addEventListener("input", () => { s.reps = repsInp.value; saveDraft(key, draft); });
+      timeInp.addEventListener("input", () => { s.time = timeInp.value; saveDraft(key, draft); });
       row.querySelector(".check").addEventListener("click", () => {
         const wasDone = s.done;
         s.done = !s.done;
@@ -1143,16 +1140,14 @@ function renderExercise(dayIdx, exIdx) {
   };
   renderSets();
 
-  // Called by the hold timer when user pauses or time hits zero.
   logHeldSet = (elapsedSec) => {
     if (elapsedSec <= 0) return;
-    const pretty = fmtClock(elapsedSec); // "1:30"
-    // If the most recent set is empty, fill it; else append.
+    const pretty = fmtClock(elapsedSec);
     const lastIdx = draft.sets.length - 1;
-    if (lastIdx >= 0 && !draft.sets[lastIdx].reps && !draft.sets[lastIdx].done) {
-      draft.sets[lastIdx] = { reps: pretty, done: true };
+    if (lastIdx >= 0 && !draft.sets[lastIdx].reps && !draft.sets[lastIdx].time && !draft.sets[lastIdx].done) {
+      draft.sets[lastIdx] = { reps: "", time: pretty, done: true };
     } else {
-      draft.sets.push({ reps: pretty, done: true });
+      draft.sets.push({ reps: "", time: pretty, done: true });
     }
     saveDraft(key, draft);
     renderSets();
@@ -1164,7 +1159,7 @@ function renderExercise(dayIdx, exIdx) {
 
   setsSection.querySelector(".add-set").addEventListener("click", () => {
     const lastSet = draft.sets[draft.sets.length - 1] || {};
-    draft.sets.push({ reps: lastSet.reps || "", done: false });
+    draft.sets.push({ reps: lastSet.reps || "", time: lastSet.time || "", done: false });
     saveDraft(key, draft);
     renderSets();
   });
@@ -1185,8 +1180,13 @@ function renderExercise(dayIdx, exIdx) {
 
   setsSection.querySelector(".save").addEventListener("click", () => {
     const sets = draft.sets
-      .filter((s) => s.reps !== "" || s.done)
-      .map((s) => ({ reps: s.reps }));
+      .filter((s) => s.reps || s.time || s.done)
+      .map((s) => {
+        const o = {};
+        if (s.reps) o.reps = s.reps;
+        if (s.time) o.time = s.time;
+        return o;
+      });
     if (sets.length === 0) return alert("Add at least one set first.");
 
     const logs = loadLogs();
@@ -1229,7 +1229,7 @@ function renderExercise(dayIdx, exIdx) {
     const entries = hist.querySelector(".entries");
     [...logs].reverse().slice(0, 10).forEach((entry) => {
       const summary = entry.sets
-        .map((s) => formatSetValue(s, isHoldEx))
+        .map((s) => formatSetValue(s))
         .join(", ");
       entries.appendChild(
         el(`
@@ -1449,6 +1449,114 @@ function buildHoldTimer(totalSec, onLog) {
   return box;
 }
 
+// ---------- stopwatch (for "hold as long as you can" exercises) ----------
+function buildStopwatch(onLog) {
+  const box = el(`
+    <div class="timer-card hold">
+      <div class="timer-label">Stopwatch — hold as long as you can</div>
+      <div class="timer-display">0:00</div>
+      <div class="btn-row">
+        <button class="btn primary" data-act="primary">Start</button>
+        <button class="btn" data-act="log" disabled>Log</button>
+        <button class="btn ghost" data-act="reset">Reset</button>
+      </div>
+    </div>
+  `);
+  const disp = box.querySelector(".timer-display");
+  const primaryBtn = box.querySelector('[data-act="primary"]');
+  const logBtn = box.querySelector('[data-act="log"]');
+  const resetBtn = box.querySelector('[data-act="reset"]');
+
+  const prepSec = loadSettings().holdPrepSec ?? 3;
+
+  let state = "idle"; // idle | prepping | running | paused
+  let startedAt = null;
+  let accumulated = 0;
+  let prepLeft = 0;
+  let tickId = null;
+  let prepTickId = null;
+
+  const elapsed = () =>
+    accumulated + (startedAt ? (Date.now() - startedAt) / 1000 : 0);
+
+  const updateUI = () => {
+    box.classList.toggle("running", state === "running");
+    box.classList.toggle("prepping", state === "prepping");
+    if (state === "prepping") {
+      disp.textContent = String(prepLeft);
+      primaryBtn.textContent = "Cancel";
+      logBtn.disabled = true;
+    } else if (state === "running") {
+      disp.textContent = fmtClock(Math.round(elapsed()));
+      primaryBtn.textContent = "Pause";
+      logBtn.disabled = false;
+    } else if (state === "paused") {
+      disp.textContent = fmtClock(Math.round(elapsed()));
+      primaryBtn.textContent = "Resume";
+      logBtn.disabled = elapsed() <= 0;
+    } else {
+      disp.textContent = "0:00";
+      primaryBtn.textContent = "Start";
+      logBtn.disabled = true;
+    }
+  };
+
+  const startPrep = () => {
+    accumulated = 0; startedAt = null;
+    if (prepSec <= 0) return startMain();
+    state = "prepping"; prepLeft = prepSec;
+    updateUI(); beep(660, 0.12);
+    prepTickId = setInterval(() => {
+      prepLeft -= 1;
+      if (prepLeft <= 0) { clearInterval(prepTickId); prepTickId = null; startMain(); }
+      else { updateUI(); beep(660, 0.12); }
+    }, 1000);
+  };
+  const startMain = () => {
+    state = "running"; startedAt = Date.now();
+    beep(880, 0.22);
+    tickId = setInterval(updateUI, 250);
+    updateUI();
+  };
+  const pause = () => {
+    accumulated = elapsed(); startedAt = null;
+    clearInterval(tickId); tickId = null;
+    state = "paused"; updateUI();
+  };
+  const resume = () => {
+    startedAt = Date.now(); state = "running";
+    tickId = setInterval(updateUI, 250); updateUI();
+  };
+  const cancelPrep = () => {
+    clearInterval(prepTickId); prepTickId = null;
+    state = "idle"; updateUI();
+  };
+  const logNow = () => {
+    const held = Math.round(elapsed());
+    if (held <= 0) return;
+    if (tickId) { clearInterval(tickId); tickId = null; }
+    accumulated = 0; startedAt = null; state = "idle";
+    if (typeof onLog === "function") onLog(held);
+    updateUI();
+  };
+
+  primaryBtn.addEventListener("click", () => {
+    if (state === "idle") startPrep();
+    else if (state === "prepping") cancelPrep();
+    else if (state === "running") pause();
+    else if (state === "paused") resume();
+  });
+  logBtn.addEventListener("click", logNow);
+  resetBtn.addEventListener("click", () => {
+    clearInterval(prepTickId); clearInterval(tickId);
+    prepTickId = null; tickId = null;
+    accumulated = 0; startedAt = null; state = "idle"; updateUI();
+  });
+
+  updateUI();
+  return box;
+}
+
 // ---------- workout timer widget (day view) ----------
 function buildWorkoutTimer(dayIdx) {
   const box = el(`
@@ -1555,10 +1663,12 @@ function startRestTimer(totalSec) {
 }
 
 // Tiny beep (WebAudio, no asset). freq in Hz, dur in seconds.
+// iOS suspends AudioContext between user gestures; resume() re-activates it.
 let audioCtx = null;
 function beep(freq = 880, dur = 0.25) {
   try {
     audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
     const now = audioCtx.currentTime;
     const o = audioCtx.createOscillator();
     const g = audioCtx.createGain();
@@ -1631,7 +1741,7 @@ function renderSummary(dayIdx, date) {
   const detailList = el(`<div class="list" style="margin-top:14px"></div>`);
   for (const { ex, entry } of completedExercises) {
     const setsStr = entry.sets
-      .map((s) => formatSetValue(s, isHoldExercise(ex)))
+      .map((s) => formatSetValue(s))
       .join(", ");
     detailList.appendChild(
       el(`
@@ -1678,7 +1788,7 @@ function buildCoachText(day, completed, forDate, durationMs) {
   if (durationMs) lines.push(`⏱ ${formatDurationMs(durationMs)}`);
   for (const { ex, entry } of completed) {
     const setsStr = entry.sets
-      .map((s) => formatSetValue(s, isHoldExercise(ex)))
+      .map((s) => formatSetValue(s))
       .join(", ");
     lines.push(`• ${ex.name}: ${setsStr}${entry.rpe ? ` (RPE ${entry.rpe})` : ""}`);
   }

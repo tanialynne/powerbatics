@@ -9,6 +9,7 @@
   "background_color": "#0b0d10",
   "theme_color": "#0b0d10",
   "orientation": "portrait",
+  "categories": ["fitness", "health"],
   "icons": [
     { "src": "icon-180.png", "sizes": "180x180", "type": "image/png", "purpose": "any" },
     { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
