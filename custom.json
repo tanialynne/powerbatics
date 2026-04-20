@@ -1,0 +1,97 @@
+{
+  "customDays": [
+    {
+      "name": "Glute A — Stretch",
+      "pairsWith": "Day 2",
+      "badge": "Custom",
+      "exercises": [
+        {
+          "name": "Cable Leaning Step-Up",
+          "goal": "3×10/leg",
+          "description": "Lean slightly into the cable stack for a glute stretch at the bottom. Step up through your heel, squeezing at the top.",
+          "youtubeUrl": "https://www.youtube.com/watch?v=jDeaGZxcOxQ"
+        },
+        {
+          "name": "GHR — Rounded Back, Hip Thrust at Top",
+          "goal": "3×8-10",
+          "description": "Glute-ham raise with a rounded back. At the top of each rep, thrust your hips forward for a full glute contraction.",
+          "youtubeUrl": "https://www.youtube.com/watch?v=hONeo_YLoyM"
+        },
+        {
+          "name": "Hip Abductor Machine",
+          "goal": "3×20",
+          "description": "Sit upright, push knees apart against the pads. Squeeze at the end range, control the return.",
+          "youtubeUrl": "https://www.youtube.com/watch?v=H98IP8rARy4"
+        },
+        {
+          "name": "Ab Wheel Rollout",
+          "goal": "3×8-10",
+          "description": "From kneeling, roll out as far as you can control. Keep your core braced and hips extended — don't let your back sag.",
+          "youtubeUrl": "https://www.youtube.com/watch?v=zCsW9L2qi-0"
+        }
+      ]
+    },
+    {
+      "name": "Glute B — Contraction",
+      "pairsWith": "Day 4",
+      "badge": "Custom",
+      "exercises": [
+        {
+          "name": "Barbell Hip Thrust",
+          "goal": "3×8 heavy",
+          "description": "Back against a bench, barbell across your hips. Drive through heels, squeeze glutes hard at the top. Go heavy.",
+          "youtubeUrl": "https://www.youtube.com/watch?v=5S8SApGU_Lk"
+        },
+        {
+          "name": "Reverse Hyper",
+          "goal": "3×12",
+          "description": "Lie face-down on the pad, swing legs up using glutes and hamstrings. Control the descent.",
+          "youtubeUrl": "https://www.youtube.com/watch?v=SVi4E1SKAuU"
+        },
+        {
+          "name": "Cable Kickback",
+          "goal": "3×15/leg",
+          "description": "Ankle strap on the low cable. Drive your heel straight back, squeezing your glute at the top. Don't arch your back.",
+          "youtubeUrl": "https://www.youtube.com/watch?v=SqO-VUEak2M"
+        },
+        {
+          "name": "Kneeling Cable Crunch",
+          "goal": "3×10-12",
+          "description": "Kneel in front of a high cable. Crunch down by flexing your abs, pulling your elbows toward your knees. Don't pull with your arms.",
+          "youtubeUrl": "https://www.youtube.com/watch?v=b9FJ4hIK3pI"
+        }
+      ]
+    },
+    {
+      "name": "Glute C — Mixed Volume",
+      "pairsWith": "Day 1",
+      "badge": "Custom",
+      "exercises": [
+        {
+          "name": "Deficit Reverse Lunge",
+          "goal": "3×10/leg",
+          "description": "Stand on a 25-lb plate. Step back into a reverse lunge, sinking deep for a glute stretch. Drive up through the front heel.",
+          "youtubeUrl": "https://www.youtube.com/watch?v=EbBWFpUbrQ0"
+        },
+        {
+          "name": "Frog Thrust",
+          "goal": "3×15",
+          "description": "Feet together in a frog position, thrust your hips up squeezing your glutes at the top.",
+          "youtubeUrl": "https://www.youtube.com/watch?v=MQ62r2V7Lw8"
+        },
+        {
+          "name": "Hip Abductor Machine + Banded Lateral Walks",
+          "goal": "3×20 machine, then 2×20 each way banded",
+          "description": "Superset: hip abductor machine for 20 reps, then immediately do banded lateral walks 20 steps each direction.",
+          "youtubeUrl": "https://www.youtube.com/shorts/sI5q7Ulk5PM"
+        },
+        {
+          "name": "Hanging Leg Raise — Straight Leg",
+          "goal": "3×10-12",
+          "description": "Hang from a bar, raise straight legs to at least 90 degrees. Control the descent — no swinging.",
+          "youtubeUrl": "https://www.youtube.com/watch?v=ttdkm6ESUjI"
+        }
+      ]
+    }
+  ]
+}

@@ -440,11 +440,13 @@ function renderHome() {
       doneCount === total && total > 0
         ? "All done today ✓"
         : `${total} exercise${total === 1 ? "" : "s"}${doneCount ? ` · ${doneCount} done today` : ""}`;
+    const pairsHint = day.pairsWith ? ` · Pairs with ${day.pairsWith}` : "";
+    const badgeHtml = day.custom ? `<span class="custom-badge">${escapeHtml(day.badge || "Custom")}</span> ` : "";
     const card = el(`
-      <button class="card ${doneCount === total && total > 0 ? "done" : ""}">
+      <button class="card ${doneCount === total && total > 0 ? "done" : ""} ${day.custom ? "custom-card" : ""}">
         <div class="row">
-          <div><div class="name">${escapeHtml(day.name)}</div>
-            <div class="meta">${escapeHtml(meta)}</div></div>
+          <div><div class="name">${badgeHtml}${escapeHtml(day.name)}</div>
+            <div class="meta">${escapeHtml(meta)}${pairsHint}</div></div>
           <span class="chev">›</span>
         </div>
       </button>
@@ -930,11 +932,29 @@ function renderDay(dayIdx) {
 // (where iframe Fullscreen API doesn't work) and everywhere else. Also
 // tries the browser's real Fullscreen API opportunistically to hide chrome
 // on Android/desktop, but the overlay alone is the source of truth.
-function buildVideoEl(videoId) {
+// Parse YouTube URLs: watch?v=ID, youtu.be/ID, /shorts/ID
+function youtubeId(url) {
+  if (!url) return null;
+  let m;
+  if ((m = url.match(/(?:youtube\.com\/watch\?.*v=|youtu\.be\/|youtube\.com\/shorts\/)([A-Za-z0-9_-]{11})/))) return m[1];
+  return null;
+}
+
+// Builds a video element for either a Vimeo ID or a YouTube URL.
+// Pass { vimeoId } or { youtubeUrl }.
+function buildVideoEl(opts) {
+  const vid = typeof opts === "string" ? opts : null; // legacy: plain vimeo ID string
+  const vimeoId = vid || opts?.vimeoId;
+  const ytId = youtubeId(opts?.youtubeUrl);
+
+  const iframeSrc = ytId
+    ? `https://www.youtube-nocookie.com/embed/${ytId}?playsinline=1&rel=0&modestbranding=1`
+    : `https://player.vimeo.com/video/${vimeoId}?title=0&byline=0&portrait=0&playsinline=1&muted=1`;
+
   const v = el(`
     <div class="video-wrap" id="video-wrap">
       <iframe
-        src="https://player.vimeo.com/video/${videoId}?title=0&byline=0&portrait=0&playsinline=1&muted=1"
+        src="${iframeSrc}"
         allow="autoplay; fullscreen; picture-in-picture"
         allowfullscreen loading="lazy"
       ></iframe>
@@ -1024,7 +1044,7 @@ function renderExercise(dayIdx, exIdx) {
   top.querySelector(".back").addEventListener("click", () => go(`#/day/${dayIdx}`));
   wrap.appendChild(top);
 
-  if (ex.videoId) wrap.appendChild(buildVideoEl(ex.videoId));
+  if (ex.videoId || ex.youtubeUrl) wrap.appendChild(buildVideoEl(ex.youtubeUrl ? { youtubeUrl: ex.youtubeUrl } : ex.videoId));
 
   if (ex.goal) wrap.appendChild(el(`<div class="goal">🎯 ${escapeHtml(ex.goal)}</div>`));
 
@@ -1265,7 +1285,7 @@ function renderWarmUpExercise(dayIdx, exIdx, day, ex) {
   top.querySelector(".back").addEventListener("click", () => go(`#/day/${dayIdx}`));
   wrap.appendChild(top);
 
-  if (ex.videoId) wrap.appendChild(buildVideoEl(ex.videoId));
+  if (ex.videoId || ex.youtubeUrl) wrap.appendChild(buildVideoEl(ex.youtubeUrl ? { youtubeUrl: ex.youtubeUrl } : ex.videoId));
 
   if (ex.goal) wrap.appendChild(el(`<div class="goal">🎯 ${escapeHtml(ex.goal)}</div>`));
   if (ex.description) {
@@ -1799,25 +1819,40 @@ function buildCoachText(day, completed, forDate, durationMs) {
 }
 
 // ---------- bootstrap ----------
-// Prefer the refreshed-from-coach program if we have one; otherwise fall
-// back to the bundled program.json that shipped with the app.
-const stored = loadStoredProgram();
-if (stored) {
-  program = stored;
+// Load coach program, then merge custom exercises on top.
+async function boot() {
+  const stored = loadStoredProgram();
+  if (stored) {
+    program = stored;
+  } else {
+    try {
+      program = await fetch("program.json", { cache: "no-cache" }).then((r) => r.json());
+    } catch (e) {
+      app.innerHTML = `<p style="padding:20px;color:#f88">Failed to load program: ${escapeHtml(e.message)}</p>`;
+      return;
+    }
+  }
+
+  // Merge custom exercises (custom.json) as additional days.
+  try {
+    const custom = await fetch("custom.json", { cache: "no-cache" }).then((r) => r.json());
+    if (custom?.customDays?.length) {
+      for (const cd of custom.customDays) {
+        program.days.push({
+          name: cd.name,
+          custom: true,
+          pairsWith: cd.pairsWith || null,
+          badge: cd.badge || "Custom",
+          exercises: cd.exercises,
+        });
+      }
+    }
+  } catch {} // custom.json is optional — main branch won't have it.
+
   if (!location.hash) location.hash = "#/";
   render();
-} else {
-  fetch("program.json", { cache: "no-cache" })
-    .then((r) => r.json())
-    .then((p) => {
-      program = p;
-      if (!location.hash) location.hash = "#/";
-      render();
-    })
-    .catch((e) => {
-      app.innerHTML = `<p style="padding:20px;color:#f88">Failed to load program: ${escapeHtml(e.message)}</p>`;
-    });
 }
+boot();
 
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker
