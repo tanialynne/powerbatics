@@ -22,14 +22,21 @@
     <script data-goatcounter="https://powerbatics.goatcounter.com/count"
             async src="//gc.zgo.at/count.js"></script>
     <script>
-      // SPA tracking: log each view change so GoatCounter shows which
-      // pages people actually use (home, day 1, exercise 3, etc.)
-      window.addEventListener("hashchange", () => {
-        if (window.goatcounter?.count)
-          window.goatcounter.count({ path: location.hash || "/" });
-      });
-      // Track PWA installs as a custom event
-      window.addEventListener("appinstalled", () => {
+      // SPA tracking: only log meaningful navigations so page-view counts
+      // stay close to real "someone looked at this" numbers.
+      var _lastPath = null;
+      function gcTrack() {
+        var h = location.hash.replace(/^#\/?/, "") || "home";
+        // Normalize to top-level view: home, day/1, day/1/ex/3, settings, past
+        var path = "/" + h.split("/").slice(0, 4).join("/");
+        if (path === _lastPath) return;
+        _lastPath = path;
+        if (window.goatcounter?.count) window.goatcounter.count({ path: path });
+      }
+      window.addEventListener("hashchange", gcTrack);
+
+      // Track PWA installs
+      window.addEventListener("appinstalled", function() {
         if (window.goatcounter?.count)
           window.goatcounter.count({ path: "install", title: "PWA Installed", event: true });
       });
