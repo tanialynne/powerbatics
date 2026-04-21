@@ -758,6 +758,15 @@ function renderSettings() {
         </div>
         <div class="hint">Wipes logs, drafts, and settings from this device. Export first if you want a backup.</div>
       </div>
+
+      <div class="settings-row" style="margin-top:20px">
+        <label>Analytics</label>
+        <label class="switch">
+          <input type="checkbox" id="analytics-ignore" ${localStorage.getItem("goatcounter-ignore") === "t" ? "checked" : ""} />
+          <span>Exclude my visits from analytics</span>
+        </label>
+        <div class="hint">When on, your visits won't appear in the analytics dashboard. Turn this on for your own devices so you only see other people's visits.</div>
+      </div>
     </div>
   `);
 
@@ -822,6 +831,14 @@ function renderSettings() {
     a.download = `powerbatics-backup-${todayStr()}.json`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+
+  form.querySelector("#analytics-ignore").addEventListener("change", (e) => {
+    if (e.target.checked) {
+      localStorage.setItem("goatcounter-ignore", "t");
+    } else {
+      localStorage.removeItem("goatcounter-ignore");
+    }
   });
 
   form.querySelector("#clear-data").addEventListener("click", () => {
