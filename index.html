@@ -21,5 +21,18 @@
     <script src="app.js" type="module"></script>
     <script data-goatcounter="https://powerbatics.goatcounter.com/count"
             async src="//gc.zgo.at/count.js"></script>
+    <script>
+      // SPA tracking: log each view change so GoatCounter shows which
+      // pages people actually use (home, day 1, exercise 3, etc.)
+      window.addEventListener("hashchange", () => {
+        if (window.goatcounter?.count)
+          window.goatcounter.count({ path: location.hash || "/" });
+      });
+      // Track PWA installs as a custom event
+      window.addEventListener("appinstalled", () => {
+        if (window.goatcounter?.count)
+          window.goatcounter.count({ path: "install", title: "PWA Installed", event: true });
+      });
+    </script>
   </body>
 </html>
