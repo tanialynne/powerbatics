@@ -1,6 +1,6 @@
 // Powerbatics service worker.
 // Bump CACHE when shipping changes you want to force-refresh.
-const CACHE = "pb-v22";
+const CACHE = "pb-v23";
 const SHELL = [
   "./",
   "./index.html",
