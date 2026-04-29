@@ -119,9 +119,13 @@ const isUntimed = (ex) =>
   !parseHoldSeconds(ex?.goal) && /hold/i.test(ex?.goal || "");
 
 function formatSetValue(set) {
+  if (!set) return "—";
+  if (set.weight) {
+    return set.reps ? `${set.reps} × ${set.weight} lbs` : `${set.weight} lbs`;
+  }
   const parts = [];
-  if (set?.reps) parts.push(set.reps);
-  if (set?.time) parts.push(set.time);
+  if (set.reps) parts.push(set.reps);
+  if (set.time) parts.push(set.time);
   return parts.length ? parts.join(" × ") : "—";
 }
 
@@ -948,7 +952,7 @@ function buildVideoEl(opts) {
   const ytId = youtubeId(opts?.youtubeUrl);
 
   const iframeSrc = ytId
-    ? `https://www.youtube-nocookie.com/embed/${ytId}?playsinline=1&rel=0&modestbranding=1`
+    ? `https://www.youtube-nocookie.com/embed/${ytId}?playsinline=1&rel=0&modestbranding=1&mute=1`
     : `https://player.vimeo.com/video/${vimeoId}?title=0&byline=0&portrait=0&playsinline=1&muted=1`;
 
   const v = el(`
@@ -1011,23 +1015,31 @@ function renderExercise(dayIdx, exIdx) {
   //  - Otherwise, use last session's values as a ready-to-go starting point.
   const holdSec = parseHoldSeconds(ex.goal);
   const isHoldEx = holdSec != null;
+  const useWeight = !!day.custom;
+  const blankSet = () => useWeight
+    ? { reps: "", weight: "", done: false }
+    : { reps: "", time: "", done: false };
 
   let draft = loadDraft(key);
   if (!draft) {
     if (todayEntry) {
       draft = {
-        sets: todayEntry.sets.map((s) => ({ reps: s.reps || "", time: s.time || "", done: true })),
+        sets: todayEntry.sets.map((s) => useWeight
+          ? { reps: s.reps || "", weight: s.weight || "", done: true }
+          : { reps: s.reps || "", time: s.time || "", done: true }),
         rpe: todayEntry.rpe || null,
         editingToday: true,
       };
     } else if (last) {
       draft = {
-        sets: last.sets.map((s) => ({ reps: s.reps || "", time: s.time || "", done: false })),
+        sets: last.sets.map((s) => useWeight
+          ? { reps: s.reps || "", weight: s.weight || "", done: false }
+          : { reps: s.reps || "", time: s.time || "", done: false }),
       };
     } else {
-      draft = { sets: [{ reps: "", time: "", done: false }] };
+      draft = { sets: [blankSet()] };
     }
-    if (!draft.sets.length) draft.sets = [{ reps: "", time: "", done: false }];
+    if (!draft.sets.length) draft.sets = [blankSet()];
     saveDraft(key, draft);
   }
 
@@ -1101,7 +1113,7 @@ function renderExercise(dayIdx, exIdx) {
     <div class="section">
       <h3>Sets</h3>
       <div class="set-headers set-headers-dual">
-        <div>#</div><div>Reps</div><div>Time</div><div>✓</div><div></div>
+        <div>#</div><div>Reps</div><div>${useWeight ? "Weight (lbs)" : "Time"}</div><div>✓</div><div></div>
       </div>
       <div class="sets"></div>
       <div class="btn-row" style="margin-top:8px">
@@ -1123,19 +1135,26 @@ function renderExercise(dayIdx, exIdx) {
     setsBox.innerHTML = "";
     draft.sets.forEach((s, i) => {
       const canDelete = i > 0;
+      const secondInputHtml = useWeight
+        ? `<input class="inp-weight" inputmode="decimal" placeholder="lbs" value="${escapeHtml(s.weight || "")}" />`
+        : `<input class="inp-time" inputmode="text" placeholder="0:00" value="${escapeHtml(s.time || "")}" />`;
       const row = el(`
         <div class="set-row set-row-dual ${s.done ? "done" : ""}">
           <div class="idx">${i + 1}</div>
           <input class="inp-reps" inputmode="decimal" placeholder="—" value="${escapeHtml(s.reps || "")}" />
-          <input class="inp-time" inputmode="text" placeholder="0:00" value="${escapeHtml(s.time || "")}" />
+          ${secondInputHtml}
           <button class="check" aria-label="Mark set done">${s.done ? "✓" : "○"}</button>
           <button class="del-set" aria-label="Delete set" ${canDelete ? "" : "disabled"}>×</button>
         </div>
       `);
       const repsInp = row.querySelector(".inp-reps");
-      const timeInp = row.querySelector(".inp-time");
+      const secondInp = row.querySelector(useWeight ? ".inp-weight" : ".inp-time");
       repsInp.addEventListener("input", () => { s.reps = repsInp.value; saveDraft(key, draft); });
-      timeInp.addEventListener("input", () => { s.time = timeInp.value; saveDraft(key, draft); });
+      secondInp.addEventListener("input", () => {
+        if (useWeight) s.weight = secondInp.value;
+        else s.time = secondInp.value;
+        saveDraft(key, draft);
+      });
       row.querySelector(".check").addEventListener("click", () => {
         const wasDone = s.done;
         s.done = !s.done;
@@ -1179,7 +1198,9 @@ function renderExercise(dayIdx, exIdx) {
 
   setsSection.querySelector(".add-set").addEventListener("click", () => {
     const lastSet = draft.sets[draft.sets.length - 1] || {};
-    draft.sets.push({ reps: lastSet.reps || "", time: lastSet.time || "", done: false });
+    draft.sets.push(useWeight
+      ? { reps: lastSet.reps || "", weight: lastSet.weight || "", done: false }
+      : { reps: lastSet.reps || "", time: lastSet.time || "", done: false });
     saveDraft(key, draft);
     renderSets();
   });
@@ -1200,11 +1221,12 @@ function renderExercise(dayIdx, exIdx) {
 
   setsSection.querySelector(".save").addEventListener("click", () => {
     const sets = draft.sets
-      .filter((s) => s.reps || s.time || s.done)
+      .filter((s) => s.reps || s.time || s.weight || s.done)
       .map((s) => {
         const o = {};
         if (s.reps) o.reps = s.reps;
         if (s.time) o.time = s.time;
+        if (s.weight) o.weight = s.weight;
         return o;
       });
     if (sets.length === 0) return alert("Add at least one set first.");
