@@ -362,6 +362,26 @@ function diffPrograms(a, b) {
   return { added, removed, videoChanged };
 }
 
+async function mergeCustomDays() {
+  try {
+    const custom = await fetch("custom.json", { cache: "no-cache" }).then((r) => r.json());
+    if (custom?.customDays?.length) {
+      for (const cd of custom.customDays) {
+        program.days.push({
+          name: cd.name,
+          custom: true,
+          pairsWith: cd.pairsWith || null,
+          badge: cd.badge || "Custom",
+          exercises: cd.exercises,
+        });
+      }
+    }
+  } catch {} // custom.json is optional — main branch won't have it.
+}
+
+const stripCustomDays = (p) =>
+  p ? { ...p, days: (p.days || []).filter((d) => !d.custom) } : p;
+
 async function refreshFromCoachPage() {
   const url = getProgramUrl();
   const proxy = `/api/coach-page?url=${encodeURIComponent(url)}`;
@@ -376,10 +396,11 @@ async function refreshFromCoachPage() {
   if (!next.days.length || exerciseCount === 0) {
     throw new Error("Parser returned no exercises — page structure may have changed.");
   }
-  const changes = diffPrograms(program, next);
+  const changes = diffPrograms(stripCustomDays(program), next);
   localStorage.setItem(LS_PROGRAM, JSON.stringify(next));
   localStorage.setItem(LS_LAST_REFRESH, new Date().toISOString());
   program = next;
+  await mergeCustomDays();
   return { changes, exerciseCount };
 }
 
@@ -1855,21 +1876,7 @@ async function boot() {
     }
   }
 
-  // Merge custom exercises (custom.json) as additional days.
-  try {
-    const custom = await fetch("custom.json", { cache: "no-cache" }).then((r) => r.json());
-    if (custom?.customDays?.length) {
-      for (const cd of custom.customDays) {
-        program.days.push({
-          name: cd.name,
-          custom: true,
-          pairsWith: cd.pairsWith || null,
-          badge: cd.badge || "Custom",
-          exercises: cd.exercises,
-        });
-      }
-    }
-  } catch {} // custom.json is optional — main branch won't have it.
+  await mergeCustomDays();
 
   if (!location.hash) location.hash = "#/";
   render();
