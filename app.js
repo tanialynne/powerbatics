@@ -81,11 +81,19 @@ const saveLogs = (l) => localStorage.setItem(LS_LOGS, JSON.stringify(l));
 const exKey = (dayName, exName) => `${slug(dayName)}::${slug(exName)}`;
 
 const loadDraft = (k) => {
-  try { return JSON.parse(localStorage.getItem(`${LS_DRAFT}.${k}`) || "null"); }
-  catch { return null; }
+  try {
+    const d = JSON.parse(localStorage.getItem(`${LS_DRAFT}.${k}`) || "null");
+    // Drafts only mean "in-progress today". A draft from a prior day is
+    // stale (you marked sets done last session, never saved) — discard.
+    if (d && d.date && d.date !== todayStr()) {
+      localStorage.removeItem(`${LS_DRAFT}.${k}`);
+      return null;
+    }
+    return d;
+  } catch { return null; }
 };
 const saveDraft = (k, v) =>
-  localStorage.setItem(`${LS_DRAFT}.${k}`, JSON.stringify(v));
+  localStorage.setItem(`${LS_DRAFT}.${k}`, JSON.stringify({ ...v, date: todayStr() }));
 const clearDraft = (k) => localStorage.removeItem(`${LS_DRAFT}.${k}`);
 
 const defaultSettings = { coachPhone: "", defaultRestSec: 90, restEnabled: true, weeklyGoal: 3, holdPrepSec: 3 };
@@ -1883,6 +1891,12 @@ async function boot() {
 }
 boot();
 
+// Set when the user taps the update banner. iOS PWAs sometimes fire spurious
+// `controllerchange` events on resume from background, so we only reload when
+// we know the user explicitly asked for an update — otherwise the reload lands
+// on a white screen mid-resume.
+let userTriggeredUpdate = false;
+
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker
     .register("sw.js")
@@ -1905,7 +1919,7 @@ if ("serviceWorker" in navigator) {
 
   let reloading = false;
   navigator.serviceWorker.addEventListener("controllerchange", () => {
-    if (reloading) return;
+    if (!userTriggeredUpdate || reloading) return;
     reloading = true;
     location.reload();
   });
@@ -1914,6 +1928,9 @@ if ("serviceWorker" in navigator) {
 function showUpdateBanner(worker) {
   if (document.querySelector(".update-banner")) return;
   const b = el(`<div class="update-banner">New version ready · <strong>tap to update</strong></div>`);
-  b.addEventListener("click", () => worker.postMessage({ type: "SKIP_WAITING" }));
+  b.addEventListener("click", () => {
+    userTriggeredUpdate = true;
+    worker.postMessage({ type: "SKIP_WAITING" });
+  });
   document.body.appendChild(b);
 }
