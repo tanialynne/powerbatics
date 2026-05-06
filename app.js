@@ -83,9 +83,9 @@ const exKey = (dayName, exName) => `${slug(dayName)}::${slug(exName)}`;
 const loadDraft = (k) => {
   try {
     const d = JSON.parse(localStorage.getItem(`${LS_DRAFT}.${k}`) || "null");
-    // Drafts only mean "in-progress today". A draft from a prior day is
-    // stale (you marked sets done last session, never saved) — discard.
-    if (d && d.date && d.date !== todayStr()) {
+    // Drafts only mean "in-progress today". Anything without today's date
+    // — including legacy drafts with no date field at all — is stale.
+    if (d && d.date !== todayStr()) {
       localStorage.removeItem(`${LS_DRAFT}.${k}`);
       return null;
     }
