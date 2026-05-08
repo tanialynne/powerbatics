@@ -138,16 +138,14 @@ function formatSetValue(set) {
 }
 
 // ---------- weekly streak ----------
-// Week = Monday-Sunday (local). A "successful" week = training days >= goal.
-function mondayOf(date) {
+// Week = Sunday-Saturday (local). A "successful" week = training days >= goal.
+function weekStartOf(date) {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
-  const day = d.getDay(); // 0=Sun, 1=Mon, …
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
+  d.setDate(d.getDate() - d.getDay()); // getDay(): 0=Sun → already start
   return d;
 }
-function weekKey(date) { return iso(mondayOf(date)); }
+function weekKey(date) { return iso(weekStartOf(date)); }
 
 function countsByWeek() {
   const m = new Map();
@@ -163,7 +161,7 @@ function currentWeekCount() {
 function weeklyStreak(goal) {
   if (!goal || goal < 1) return 0;
   const by = countsByWeek();
-  let d = mondayOf(new Date());
+  let d = weekStartOf(new Date());
   // If this week hasn't hit goal yet, start counting from last week.
   if ((by.get(iso(d)) || 0) < goal) d.setDate(d.getDate() - 7);
   let n = 0;
@@ -613,7 +611,7 @@ function renderCalendarStrip(opts = {}) {
   }
   wrap.appendChild(header);
 
-  const dowNames = ["M", "T", "W", "T", "F", "S", "S"];
+  const dowNames = ["S", "M", "T", "W", "T", "F", "S"];
   const dowBar = el(`<div class="cal-dow"></div>`);
   for (const n of dowNames) dowBar.appendChild(el(`<div>${n}</div>`));
   wrap.appendChild(dowBar);
@@ -631,21 +629,21 @@ function renderCalendarStrip(opts = {}) {
   };
 
   if (!expanded) {
-    // Current week only (Mon–Sun)
-    const mon = mondayOf(today);
+    // Current week only (Sun–Sat)
+    const start = weekStartOf(today);
     for (let i = 0; i < 7; i++) {
-      const d = new Date(mon); d.setDate(mon.getDate() + i);
+      const d = new Date(start); d.setDate(start.getDate() + i);
       grid.appendChild(makeCell(d));
     }
   } else {
-    // Full month. Start from Monday of week containing day 1, end Sunday
+    // Full month. Start from Sunday of week containing day 1, end Saturday
     // of week containing last day. Out-of-month days are greyed.
     const monthStart = new Date(yr, mo - 1, 1);
-    const firstMon = mondayOf(monthStart);
+    const firstStart = weekStartOf(monthStart);
     const monthEnd = new Date(yr, mo, 0);
-    const lastSun = new Date(mondayOf(monthEnd));
-    lastSun.setDate(lastSun.getDate() + 6);
-    for (let d = new Date(firstMon); d <= lastSun; d.setDate(d.getDate() + 1)) {
+    const lastEnd = new Date(weekStartOf(monthEnd));
+    lastEnd.setDate(lastEnd.getDate() + 6);
+    for (let d = new Date(firstStart); d <= lastEnd; d.setDate(d.getDate() + 1)) {
       const cell = makeCell(d);
       if (d.getMonth() !== mo - 1) cell.classList.add("out-of-month");
       grid.appendChild(cell);
