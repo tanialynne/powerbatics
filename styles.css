@@ -354,6 +354,50 @@ a, button {
   border-color: var(--accent);
   font-weight: 700;
 }
+
+.picker-list {
+  max-height: 60vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.picker-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  text-align: left;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 15px;
+}
+.picker-row .name { flex: 1; min-width: 0; }
+.picker-row .pick-icon {
+  width: 28px; height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 16px;
+  font-weight: 700;
+  flex: 0 0 28px;
+}
+.picker-row.picked {
+  background: rgba(74, 222, 128, 0.12);
+  border-color: rgba(74, 222, 128, 0.4);
+}
+.picker-row.picked .pick-icon {
+  background: var(--good);
+  color: #0e1a0e;
+  border-color: var(--good);
+}
 .cal-dow {
   display: grid;
   grid-template-columns: repeat(7, 1fr);

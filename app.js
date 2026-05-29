@@ -71,6 +71,7 @@ const LS_PROGRAM = "pb.program.v1";
 const LS_PROGRAM_URL = "pb.programUrl.v1";
 const LS_LAST_REFRESH = "pb.lastRefresh.v1";
 const LS_WORKOUT = "pb.workout.v1";
+const LS_CUSTOM_WORKOUT = "pb.customWorkout.v1";
 
 const loadLogs = () => {
   try { return JSON.parse(localStorage.getItem(LS_LOGS) || "{}"); }
@@ -389,6 +390,45 @@ async function mergeCustomDays() {
 const stripCustomDays = (p) =>
   p ? { ...p, days: (p.days || []).filter((d) => !d.custom) } : p;
 
+// ---------- custom workout (user-picked exercises) ----------
+const loadCustomWorkout = () => {
+  try { return JSON.parse(localStorage.getItem(LS_CUSTOM_WORKOUT) || "[]"); }
+  catch { return []; }
+};
+const saveCustomWorkout = (arr) =>
+  localStorage.setItem(LS_CUSTOM_WORKOUT, JSON.stringify(arr));
+
+// All unique exercises across the program (excluding warm-up and the synthetic
+// custom-workout day itself), keyed by lowercased name. First occurrence wins.
+function customWorkoutPool() {
+  const map = new Map();
+  for (const d of program.days) {
+    if (d.synthetic || isWarmUpDay(d)) continue;
+    for (const e of d.exercises) {
+      const k = e.name.toLowerCase();
+      if (!map.has(k)) map.set(k, e);
+    }
+  }
+  return map;
+}
+
+// Synthetic day: resolves each picked name against the current pool. Picks
+// that no longer exist (coach removed them) are dropped silently. Always
+// appended last so its dayIdx is program.days.length - 1.
+function appendCustomWorkoutDay() {
+  program.days = program.days.filter((d) => !d.synthetic);
+  const pool = customWorkoutPool();
+  const exercises = loadCustomWorkout()
+    .map((name) => pool.get(name.toLowerCase()))
+    .filter(Boolean);
+  program.days.push({
+    name: "Custom Workout",
+    useWeight: false,
+    synthetic: true,
+    exercises,
+  });
+}
+
 async function refreshFromCoachPage() {
   const url = getProgramUrl();
   const proxy = `/api/coach-page?url=${encodeURIComponent(url)}`;
@@ -408,6 +448,7 @@ async function refreshFromCoachPage() {
   localStorage.setItem(LS_LAST_REFRESH, new Date().toISOString());
   program = next;
   await mergeCustomDays();
+  appendCustomWorkoutDay();
   return { changes, exerciseCount };
 }
 
@@ -468,14 +509,18 @@ function renderHome() {
     const doneCount = day.exercises.filter((e) =>
       doneToday(exKey(day.name, e.name)),
     ).length;
-    const meta =
-      doneCount === total && total > 0
-        ? "All done today ✓"
-        : `${total} exercise${total === 1 ? "" : "s"}${doneCount ? ` · ${doneCount} done today` : ""}`;
+    let meta;
+    if (day.synthetic && total === 0) {
+      meta = "Tap to build a workout";
+    } else if (doneCount === total && total > 0) {
+      meta = "All done today ✓";
+    } else {
+      meta = `${total} exercise${total === 1 ? "" : "s"}${doneCount ? ` · ${doneCount} done today` : ""}`;
+    }
     const pairsHint = day.pairsWith ? ` · Pairs with ${day.pairsWith}` : "";
     const badgeHtml = day.custom ? `<span class="custom-badge">${escapeHtml(day.badge || "Custom")}</span> ` : "";
     const card = el(`
-      <button class="card ${doneCount === total && total > 0 ? "done" : ""} ${day.custom ? "custom-card" : ""}">
+      <button class="card ${doneCount === total && total > 0 ? "done" : ""} ${(day.custom || day.synthetic) ? "custom-card" : ""}">
         <div class="row">
           <div><div class="name">${badgeHtml}${escapeHtml(day.name)}</div>
             <div class="meta">${escapeHtml(meta)}${pairsHint}</div></div>
@@ -721,6 +766,71 @@ function showMonthPicker(currentMonth, onPick) {
   document.body.appendChild(sheet);
 }
 
+// ---------- custom workout picker ----------
+// Flat alphabetical list of every unique exercise across the program (custom
+// days included, warm-ups excluded). Tap to toggle. On Done, persist picks
+// preserving prior order with newly-added names appended alphabetically.
+function showCustomPicker() {
+  const pool = customWorkoutPool();
+  const existing = loadCustomWorkout();
+  const pickedSet = new Set(existing.map((n) => n.toLowerCase()));
+  const sorted = [...pool.values()].sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+
+  const sheet = el(`
+    <div class="sheet-backdrop">
+      <div class="sheet">
+        <h3 style="margin:0 0 12px">Add exercises</h3>
+        <div class="picker-list"></div>
+        <div class="btn-row" style="margin-top:12px">
+          <button class="btn primary" id="done" style="flex:1">Done</button>
+        </div>
+      </div>
+    </div>
+  `);
+  const list = sheet.querySelector(".picker-list");
+
+  for (const ex of sorted) {
+    const k = ex.name.toLowerCase();
+    const row = el(`
+      <button class="picker-row ${pickedSet.has(k) ? "picked" : ""}">
+        <span class="name">${escapeHtml(ex.name)}</span>
+        <span class="pick-icon">${pickedSet.has(k) ? "✓" : "+"}</span>
+      </button>
+    `);
+    row.addEventListener("click", () => {
+      if (pickedSet.has(k)) pickedSet.delete(k);
+      else pickedSet.add(k);
+      const on = pickedSet.has(k);
+      row.classList.toggle("picked", on);
+      row.querySelector(".pick-icon").textContent = on ? "✓" : "+";
+    });
+    list.appendChild(row);
+  }
+
+  const close = () => {
+    const next = [];
+    const used = new Set();
+    for (const n of existing) {
+      const k = n.toLowerCase();
+      if (pickedSet.has(k)) { next.push(n); used.add(k); }
+    }
+    for (const ex of sorted) {
+      const k = ex.name.toLowerCase();
+      if (pickedSet.has(k) && !used.has(k)) next.push(ex.name);
+    }
+    saveCustomWorkout(next);
+    appendCustomWorkoutDay();
+    sheet.remove();
+    render();
+  };
+
+  sheet.querySelector("#done").addEventListener("click", close);
+  sheet.addEventListener("click", (e) => { if (e.target === sheet) close(); });
+  document.body.appendChild(sheet);
+}
+
 // ---------- SETTINGS ----------
 function renderSettings() {
   const s = loadSettings();
@@ -919,6 +1029,19 @@ function renderDay(dayIdx) {
 
   if (!isWarmUpDay(day)) wrap.appendChild(buildWorkoutTimer(dayIdx));
 
+  if (day.synthetic) {
+    const addBtn = el(
+      `<button class="btn primary" style="width:100%;height:48px;margin-bottom:14px">+ Add exercises</button>`,
+    );
+    addBtn.addEventListener("click", () => showCustomPicker());
+    wrap.appendChild(addBtn);
+    if (day.exercises.length === 0) {
+      wrap.appendChild(
+        el(`<div class="tip">No exercises yet. Tap "+ Add exercises" to build a workout from anything in your program.</div>`),
+      );
+    }
+  }
+
   const list = el(`<div class="list"></div>`);
   day.exercises.forEach((ex, i) => {
     const k = exKey(day.name, ex.name);
@@ -955,6 +1078,19 @@ function renderDay(dayIdx) {
     );
     sumBtn.addEventListener("click", () => go(`#/day/${dayIdx}/summary`));
     wrap.appendChild(sumBtn);
+  }
+
+  if (day.synthetic && day.exercises.length > 0) {
+    const clearBtn = el(
+      `<button class="btn ghost" style="margin-top:14px;width:100%">Clear all</button>`,
+    );
+    clearBtn.addEventListener("click", () => {
+      if (!confirm("Clear all picked exercises?")) return;
+      saveCustomWorkout([]);
+      appendCustomWorkoutDay();
+      render();
+    });
+    wrap.appendChild(clearBtn);
   }
   app.appendChild(wrap);
 }
@@ -1884,6 +2020,7 @@ async function boot() {
   }
 
   await mergeCustomDays();
+  appendCustomWorkoutDay();
 
   if (!location.hash) location.hash = "#/";
   render();
