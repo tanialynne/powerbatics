@@ -1,6 +1,79 @@
 {
   "customDays": [
     {
+      "name": "My List",
+      "badge": "My List",
+      "useWeight": false,
+      "exercises": [
+        {
+          "name": "SQUAT TO STALDER",
+          "goal": "10 reps",
+          "description": "Follow the video to do a stalder squat. The goal is to be able to hold the position while lifting one leg at a time (then eventually both feet), but to begin you may need to focus on squatting and weight bearing through your arms.",
+          "videoId": "802280879"
+        },
+        {
+          "name": "STALDER PULSES",
+          "goal": "15 reps",
+          "description": "Start this move in a straddle with your arms behind your legs. Point your toes and stalder lift both legs up at the same time. Hold that contraction and use your arms and core maintain legs up and pulse",
+          "videoId": "1151377625"
+        },
+        {
+          "name": "FROG HOLD",
+          "goal": "3 reps for as long as you can hold, max of 1 minute per frog",
+          "description": "This move starts by placing your hands on the ground flat in front of you slightly wider than your shoulders. You will then bring your feet close to your hands to allow your inner thigh near your knees to lean against your elbows. From there you will lean forward to lessen weight on your feet until you can lift BOTH FEET up off the ground.",
+          "videoId": "870785325"
+        },
+        {
+          "name": "HANDSTAND WALL WALK UPS",
+          "goal": "5 reps",
+          "description": "This move starts in a tall plank position with your feet close to the wall. As you walk your hands backwards towards the wall, walk your feet up the wall. Use your core to keep your lower back from arching.",
+          "videoId": "871599717"
+        },
+        {
+          "name": "BRIDGE ON WALL FOR SHOULDERS",
+          "goal": "3-5 reps with 15 sec hold",
+          "description": "Push up into a bridge with your feet on the wall. Weight shift onto your hands while pushing your chest up to the ceiling to work on opening your shoulders. WALK YOUR FEET BACK DOWN TO BRIDGE TO GET OUT",
+          "videoId": "724076671"
+        },
+        {
+          "name": "SPLIT STRETCH",
+          "goal": "30 sec holds x 2 reps each side",
+          "description": "Begin in a kneeling position then extend one leg out in front of you. Lower your hands to the floor on either side of you then slow slide your front leg out in front of you in a front split.",
+          "videoId": "1151387461"
+        },
+        {
+          "name": "PANCAKE STRETCH",
+          "goal": "30 sec holds x 4 reps",
+          "description": "Sit in a middle straddle with your legs as far apart as you can with your toes pointed up. Keep your back straight and arms to your ears. Hip hinge forward to feel a stretch.",
+          "videoId": "717125587"
+        },
+        {
+          "name": "DRAGON TAILS",
+          "goal": "12 reps",
+          "description": "Start by inverting your body holding onto a bar or the underside of a couch/bed. Then lower your body keeping your core active to lessen any hip bending. You then will lift your body back up to an inverted position. **You can allow your knees to bend and touch the floor if you cannot lower and return to inverted position without.",
+          "videoId": "738086974"
+        },
+        {
+          "name": "TUCK HOP TO HANDSTAND AND NEGATIVE",
+          "goal": "10 reps",
+          "description": "Begin in a tucked position with feet together and hands on the ground. Using both feet, you shift your weight into your hands and hop aiming to get your hips stacked over your shoulders and then extend to handstand. Slowly lower back to the ground in reverse as shown in the video.",
+          "videoId": "1156057196"
+        },
+        {
+          "name": "PUSH UPS",
+          "youtubeUrl": "https://www.youtube.com/shorts/UIcct-7b6oE"
+        },
+        {
+          "name": "PULL UPS",
+          "youtubeUrl": "https://www.youtube.com/shorts/ym1V5H35IpA"
+        },
+        {
+          "name": "DIPS",
+          "youtubeUrl": "https://www.youtube.com/shorts/CVnD-3jP5CE"
+        }
+      ]
+    },
+    {
       "name": "Glute A — Stretch",
       "pairsWith": "Day 2",
       "badge": "Custom",

@@ -378,6 +378,7 @@ async function mergeCustomDays() {
           custom: true,
           pairsWith: cd.pairsWith || null,
           badge: cd.badge || "Custom",
+          useWeight: cd.useWeight,
           exercises: cd.exercises,
         });
       }
@@ -1042,7 +1043,7 @@ function renderExercise(dayIdx, exIdx) {
   //  - Otherwise, use last session's values as a ready-to-go starting point.
   const holdSec = parseHoldSeconds(ex.goal);
   const isHoldEx = holdSec != null;
-  const useWeight = !!day.custom;
+  const useWeight = day.useWeight ?? !!day.custom;
   const blankSet = () => useWeight
     ? { reps: "", weight: "", done: false }
     : { reps: "", time: "", done: false };
